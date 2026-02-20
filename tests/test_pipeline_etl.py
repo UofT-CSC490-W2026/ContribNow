@@ -1,11 +1,13 @@
 import json
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.pipeline.ingest import ingest_repos
-from src.pipeline.load import load_artifact
+from src.pipeline.load import _load_env_file, load_artifact
 from src.pipeline.transform import transform_repo
 
 
@@ -35,6 +37,31 @@ def _create_git_repo(repo_dir: Path) -> None:
 
 
 class TestPipelineETL(unittest.TestCase):
+    def test_load_env_file_sets_missing_values_without_overriding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / ".env"
+            env_file.write_text(
+                "\n".join(
+                    [
+                        "# sample",
+                        "TENANT_ID=tenant-from-env",
+                        "USER_ID='user-from-env'",
+                        "TENANT_SALT=secret-salt",
+                        'CLOUD_DB_URL="postgresql://env-user:env-pass@localhost:5432/contribnow"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {"TENANT_ID": "already-set"}, clear=True):
+                _load_env_file(env_file)
+                self.assertEqual(os.environ["TENANT_ID"], "already-set")
+                self.assertEqual(os.environ["USER_ID"], "user-from-env")
+                self.assertEqual(os.environ["TENANT_SALT"], "secret-salt")
+                self.assertEqual(
+                    os.environ["CLOUD_DB_URL"],
+                    "postgresql://env-user:env-pass@localhost:5432/contribnow",
+                )
+
     def test_end_to_end_happy_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
