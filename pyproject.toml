@@ -1,0 +1,17 @@
+[project]
+name = "contribnow"
+version = "0.1.0"
+description = "ContribNow ETL pipeline"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+cloud = ["psycopg[binary]>=3.2.0"]
+
+[build-system]
+requires = ["hatchling>=1.26.0"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false
