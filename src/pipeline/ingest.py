@@ -3,14 +3,11 @@ import json
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
+from src.pipeline.utils import utc_now
+
 COMMIT_LOG_LIMIT = 500
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _run_git(args: list[str], cwd: Path | None = None) -> str:
@@ -138,6 +135,7 @@ def ingest_repos(
     branch: str | None = None,
     depth: int | None = None,
 ) -> list[Path]:
+    """Clone/fetch repos and write per-repo raw ingest manifests."""
     raw_root = Path(raw_root)
     raw_root.mkdir(parents=True, exist_ok=True)
     completed: list[Path] = []
@@ -155,7 +153,7 @@ def ingest_repos(
                 "repo_url": repo_url,
                 "default_branch": _detect_default_branch(repo_checkout_dir),
                 "head_commit": _head_commit(repo_checkout_dir),
-                "generated_at": _utc_now(),
+                "generated_at": utc_now(),
                 "files": _list_files(repo_checkout_dir),
                 "commit_log": _build_commit_log(repo_checkout_dir),
             }

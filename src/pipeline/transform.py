@@ -4,12 +4,9 @@ import re
 import subprocess
 import sys
 from collections import Counter
-from datetime import datetime, timezone
 from pathlib import Path
 
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from src.pipeline.utils import utc_now
 
 
 def _run_git(args: list[str], cwd: Path) -> str:
@@ -123,6 +120,7 @@ def _compute_hotspots(repo_checkout: Path, top_n: int) -> tuple[list[dict[str, o
 
 
 def transform_repo(raw_repo_dir: Path, transform_root: Path, top_n_hotspots: int = 20) -> Path:
+    """Build structure summary + hotspot ranking from a raw ingest directory."""
     raw_repo_dir = Path(raw_repo_dir)
     transform_root = Path(transform_root)
 
@@ -149,7 +147,7 @@ def transform_repo(raw_repo_dir: Path, transform_root: Path, top_n_hotspots: int
         "structure_summary": structure_summary,
         "hotspots": hotspots,
         "transform_metadata": {
-            "generated_at": _utc_now(),
+            "generated_at": utc_now(),
             "top_n_hotspots": top_n_hotspots,
             "commits_analyzed": commits_analyzed,
             "source_ingest_path": str(ingest_path),
