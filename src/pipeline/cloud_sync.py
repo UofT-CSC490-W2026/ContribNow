@@ -1,12 +1,12 @@
-import hashlib
 import json
 import os
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from src.pipeline.utils import read_json, sha256_hex, utc_now
 
 SCHEMA_VERSION = 1
 FORBIDDEN_KEY_PATTERNS = (
@@ -16,16 +16,8 @@ FORBIDDEN_KEY_PATTERNS = (
 )
 
 
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _sha256_hex(raw: str) -> str:
-    return hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()
-
-
 def _hash_with_tenant_salt(raw: str, tenant_salt: str) -> str:
-    return _sha256_hex(f"{tenant_salt}::{raw}")
+    return sha256_hex(f"{tenant_salt}::{raw}")
 
 
 def _normalize_repo_ref(repo_ref: str) -> str:
@@ -49,10 +41,6 @@ def _ensure_cloud_safe(payload: dict[str, Any]) -> None:
                     _ensure_cloud_safe(item)
 
 
-def _read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def _extract_file_fingerprints(
     transform_payload: dict[str, Any], tenant_salt: str
 ) -> list[dict[str, Any]]:
@@ -65,7 +53,7 @@ def _extract_file_fingerprints(
     if not ingest_path.exists():
         return []
 
-    ingest_payload = _read_json(ingest_path)
+    ingest_payload = read_json(ingest_path)
     files = ingest_payload.get("files", [])
     if not isinstance(files, list):
         return []
@@ -131,7 +119,8 @@ def build_cloud_safe_payload(
     tenant_salt: str,
     local_run_id: str | None = None,
 ) -> dict[str, Any]:
-    payload = _read_json(Path(transform_json_path))
+    """Project transform output into a cloud-safe, hashed metadata payload."""
+    payload = read_json(Path(transform_json_path))
     repo_url = str(payload.get("repo_url") or "")
     repo_slug = str(payload.get("repo_slug") or "")
     head_commit = str(payload.get("head_commit") or "")
@@ -139,7 +128,7 @@ def build_cloud_safe_payload(
 
     repo_fingerprint = _hash_with_tenant_salt(canonical_repo_ref, tenant_salt)
     canonical_repo_ref_hash = _hash_with_tenant_salt(canonical_repo_ref, tenant_salt)
-    version_key = _sha256_hex(f"{tenant_id}:{repo_fingerprint}:{head_commit}")
+    version_key = sha256_hex(f"{tenant_id}:{repo_fingerprint}:{head_commit}")
 
     structure_summary = payload.get("structure_summary", {})
     hotspots_raw = payload.get("hotspots", [])
@@ -173,7 +162,7 @@ def build_cloud_safe_payload(
         "sync_metadata": {
             "user_id": user_id,
             "local_run_id": local_run_id or str(uuid.uuid4()),
-            "synced_at": _utc_now(),
+            "synced_at": utc_now(),
             "schema_version": SCHEMA_VERSION,
         },
     }
@@ -405,6 +394,7 @@ def sync_cloud_safe(
     schema_sql_path: Path | None = None,
     apply_schema: bool = False,
 ) -> SyncResult:
+    """Build and sync cloud-safe metadata for one transformed repo artifact."""
     payload = build_cloud_safe_payload(
         transform_json_path=transform_json_path,
         tenant_id=tenant_id,

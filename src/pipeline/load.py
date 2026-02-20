@@ -1,27 +1,15 @@
 import argparse
-import json
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from src.pipeline.cloud_sync import is_cloud_sync_enabled, sync_cloud_safe
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _read_json(path: Path) -> dict[str, object]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _write_json(path: Path, payload: dict[str, object]) -> None:
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+from src.pipeline.utils import read_json, utc_now, write_json
 
 
 def _load_env_file(path: Path, override: bool = False) -> None:
+    """Load KEY=VALUE pairs from a dotenv-style file into os.environ."""
     if not path.exists():
         return
     for raw_line in path.read_text(encoding="utf-8").splitlines():
@@ -40,13 +28,14 @@ def _load_env_file(path: Path, override: bool = False) -> None:
 
 
 def load_artifact(transform_json_path: Path, output_root: Path) -> Path:
+    """Write final onboarding snapshot and update output index.json."""
     transform_json_path = Path(transform_json_path)
     output_root = Path(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
 
-    transformed = _read_json(transform_json_path)
+    transformed = read_json(transform_json_path)
     repo_slug = str(transformed.get("repo_slug") or transform_json_path.parent.name)
-    timestamp = _utc_now()
+    timestamp = utc_now()
 
     repo_out_dir = output_root / repo_slug
     repo_out_dir.mkdir(parents=True, exist_ok=True)
@@ -64,11 +53,11 @@ def load_artifact(transform_json_path: Path, output_root: Path) -> Path:
             "source_transform_path": str(transform_json_path),
         },
     }
-    _write_json(snapshot_path, snapshot)
+    write_json(snapshot_path, snapshot)
 
     index_path = output_root / "index.json"
     if index_path.exists():
-        current_index = _read_json(index_path)
+        current_index = read_json(index_path)
         artifacts = list(current_index.get("artifacts", []))
     else:
         artifacts = []
@@ -82,7 +71,7 @@ def load_artifact(transform_json_path: Path, output_root: Path) -> Path:
         }
     )
     artifacts.sort(key=lambda entry: str(entry["repo_slug"]))
-    _write_json(index_path, {"generated_at": timestamp, "artifacts": artifacts})
+    write_json(index_path, {"generated_at": timestamp, "artifacts": artifacts})
     return snapshot_path
 
 
