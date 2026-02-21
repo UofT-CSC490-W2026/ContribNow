@@ -48,31 +48,31 @@ module "rds" {
   skip_final_snapshot     = local.rds_config.skip_final_snapshot
 }
 
-module "ecs" {
-  source = "../../modules/ecs"
-
-  environment        = "prod"
-  vpc_id             = module.networking.vpc_id
-  public_subnet_ids  = module.networking.public_subnet_ids
-  private_subnet_ids = module.networking.private_subnet_ids
-
-  db_endpoint        = module.rds_postgres.db_endpoint
-  db_security_group_id = module.rds_postgres.db_security_group_id
-
-  container_image = "nginx:latest"
-}
-
-module "lambda" {
-  source = "../../modules/lambda"
-
-  environment          = "prod"
-  lambda_zip_path      = "../../lambda/lambda.zip"
-  vpc_id               = module.networking.vpc_id
-  private_subnet_ids   = module.networking.private_subnet_ids
-  rds_security_group_id = module.rds_postgres.db_security_group_id
-  db_endpoint          = module.rds_postgres.db_endpoint
-  db_name              = "contribnow_prod"
-  db_username          = "contribnow_admin"
-  db_password          = var.db_password
-  s3_bucket_name       = module.s3_data_lake.bucket_name
-}
+# module "ecs" {
+#   source = "../../modules/ecs"
+# 
+#   environment        = "prod"
+#   vpc_id             = module.networking.vpc_id
+#   public_subnet_ids  = module.networking.public_subnet_ids
+#   private_subnet_ids = module.networking.private_subnet_ids
+# 
+#   db_endpoint        = module.rds_postgres.db_endpoint
+#   db_security_group_id = module.rds_postgres.db_security_group_id
+# 
+#   container_image = "nginx:latest"
+# }
+# 
+# module "lambda" {
+#   source = "../../modules/lambda"
+# 
+#   environment          = "prod"
+#   lambda_zip_path      = "../../lambda/lambda.zip"
+#   vpc_id               = module.networking.vpc_id
+#   private_subnet_ids   = module.networking.private_subnet_ids
+#   rds_security_group_id = module.rds_postgres.db_security_group_id
+#   db_endpoint          = module.rds_postgres.db_endpoint
+#   db_name              = "contribnow_prod"
+#   db_username          = "contribnow_admin"
+#   db_password          = var.db_password
+#   s3_bucket_name       = module.s3_data_lake.bucket_name
+# }
