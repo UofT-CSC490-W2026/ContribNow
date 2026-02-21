@@ -58,7 +58,7 @@ Then run:
 
 ## Terraform usage guide
 
-1. Install [Terraform]{https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli} and [AWS CLI]{https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html}.
+1. Install [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli) and [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html).
 2. Run `aws configure` and enter your credentials.
 3. Navigate to environment
 ```
