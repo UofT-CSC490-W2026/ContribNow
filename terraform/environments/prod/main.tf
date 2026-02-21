@@ -2,8 +2,8 @@ locals {
   environment = "prod"
 
   rds_config = {
-    db_instance_class       = "db.t3.medium"
-    multi_az                = true
+    db_instance_class       = "db.t3.micro"
+    multi_az                = false
     deletion_protection     = true
     backup_retention_period = 7
     skip_final_snapshot     = false

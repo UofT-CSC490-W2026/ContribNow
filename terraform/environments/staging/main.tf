@@ -2,7 +2,7 @@ locals {
   environment = "staging"
 
   rds_config = {
-    db_instance_class       = "db.t3.small"
+    db_instance_class       = "db.t3.micro"
     multi_az                = false
     deletion_protection     = false
     backup_retention_period = 3
