@@ -37,6 +37,22 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Apply DB migration before cloud sync (requires --cloud-sync).",
     )
+    parser.add_argument(
+        "--experimental-index",
+        action="store_true",
+        help="Run experimental local index stage after load.",
+    )
+    parser.add_argument(
+        "--index-root",
+        default=None,
+        help="Index output root (default: data/index_<run_id> when --experimental-index is used).",
+    )
+    parser.add_argument(
+        "--index-max-hotspots",
+        type=int,
+        default=20,
+        help="Max hotspot chunks for experimental index stage (default: 20).",
+    )
     return parser.parse_args()
 
 
@@ -51,6 +67,7 @@ def main() -> int:
     raw_root = f"data/raw_{run_id}"
     transform_root = f"data/transform_{run_id}"
     output_root = f"data/output_{run_id}"
+    index_root = args.index_root or f"data/index_{run_id}"
 
     ingest_cmd = [py, "-m", "src.pipeline.ingest", "--raw-root", raw_root]
     for repo in args.repo:
@@ -86,11 +103,29 @@ def main() -> int:
             load_cmd.append("--apply-schema")
     _run(load_cmd, env=load_env)
 
+    if args.experimental_index:
+        print("[run] index (experimental)")
+        _run(
+            [
+                py,
+                "-m",
+                "src.pipeline.index",
+                "--output-root",
+                output_root,
+                "--index-root",
+                index_root,
+                "--max-hotspots",
+                str(args.index_max_hotspots),
+            ]
+        )
+
     print("[run] done")
     print(f"  run_id:          {run_id}")
     print(f"  raw_root:        {raw_root}")
     print(f"  transform_root:  {transform_root}")
     print(f"  output_root:     {output_root}")
+    if args.experimental_index:
+        print(f"  index_root:      {index_root}")
     print(f"  index:           {output_root}/index.json")
     return 0
 

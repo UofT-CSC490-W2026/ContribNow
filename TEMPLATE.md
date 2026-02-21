@@ -24,4 +24,12 @@ Cloud-sync run (uses `.env`/env vars for DB + tenant config):
   --apply-schema
 ```
 
+Experimental local index (RAG prototype):
+
+```bash
+.venv/bin/python scripts/run_pipeline.py \
+  --repo "https://github.com/pallets/markupsafe.git" \
+  --experimental-index
+```
+
 Legacy manual steps are still supported via the Python module CLIs in `README.md`.
