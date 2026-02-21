@@ -1,6 +1,6 @@
 variable "aws_region" {
-    type    = string
-    default = "us-east-1"
+  type    = string
+  default = "ca-central-1"
 }
 
 variable "db_username" {
@@ -12,3 +12,4 @@ variable "db_password" {
   type      = string
   sensitive = true
 }
+

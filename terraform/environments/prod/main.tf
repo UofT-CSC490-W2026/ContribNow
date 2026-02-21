@@ -4,9 +4,9 @@ locals {
   rds_config = {
     db_instance_class       = "db.t3.micro"
     multi_az                = false
-    deletion_protection     = true
-    backup_retention_period = 7
-    skip_final_snapshot     = false
+    deletion_protection     = false
+    backup_retention_period = 1
+    skip_final_snapshot     = true
   }
 }
 
@@ -34,11 +34,11 @@ module "rds" {
   db_username = var.db_username
   db_password = var.db_password
 
-  vpc_id                     = module.networking.vpc_id
-  private_subnet_ids         = module.networking.private_subnet_ids
+  vpc_id             = module.networking.vpc_id
+  private_subnet_ids = module.networking.private_subnet_ids
   allowed_security_group_ids = [
-    module.lambda.lambda_security_group_id,
-    module.ecs.ecs_security_group_id,
+    #   module.lambda.lambda_security_group_id,
+    #   module.ecs.ecs_security_group_id,
   ]
 
   db_instance_class       = local.rds_config.db_instance_class
@@ -76,3 +76,4 @@ module "rds" {
 #   db_password          = var.db_password
 #   s3_bucket_name       = module.s3_data_lake.bucket_name
 # }
+
