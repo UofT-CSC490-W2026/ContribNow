@@ -1,3 +1,14 @@
+locals {
+  environment = "dev"
+
+  rds_config = {
+    db_instance_class       = "db.t3.micro"
+    multi_az                = false
+    deletion_protection     = false
+    backup_retention_period = 1
+    skip_final_snapshot     = true
+  }
+}
 module "networking" {
   source = "../../modules/networking"
 
@@ -16,17 +27,24 @@ module "s3" {
 module "rds" {
   source = "../../modules/rds"
 
-  environment = "dev"
+  environment = local.environment
+
   db_name     = "contribnow_dev"
   db_username = var.db_username
   db_password = var.db_password
 
-  vpc_id                   = module.networking.vpc_id
-  private_subnet_ids       = module.networking.private_subnet_ids
+  vpc_id                     = module.networking.vpc_id
+  private_subnet_ids         = module.networking.private_subnet_ids
   allowed_security_group_ids = [
-  #   module.lambda.lambda_security_group_id,
-  #   module.ecs.ecs_security_group_id,
+    # module.lambda.lambda_security_group_id,
+    # module.ecs.ecs_security_group_id,
   ]
+
+  db_instance_class       = local.rds_config.db_instance_class
+  multi_az                = local.rds_config.multi_az
+  deletion_protection     = local.rds_config.deletion_protection
+  backup_retention_period = local.rds_config.backup_retention_period
+  skip_final_snapshot     = local.rds_config.skip_final_snapshot
 }
 
 # Temporarily commented out due to: cost concerns

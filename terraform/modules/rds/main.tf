@@ -34,7 +34,7 @@ resource "aws_db_instance" "this" {
   identifier             = "contribnow-${var.environment}-db"
   engine                 = "postgres"
   engine_version         = "16"
-  instance_class         = "db.t3.micro"
+  instance_class         = var.db_instance_class
   allocated_storage      = 20
   max_allocated_storage  = 20
   db_name                = var.db_name
@@ -44,11 +44,10 @@ resource "aws_db_instance" "this" {
   vpc_security_group_ids = [aws_security_group.rds.id]
   publicly_accessible    = false
 
-  backup_retention_period = var.environment == "prod" ? 7 : 1
-  multi_az                = var.environment == "prod" ? true : false
-  deletion_protection     = var.environment == "prod" ? true : false
-
-  skip_final_snapshot = var.environment == "prod" ? false : true
+  backup_retention_period = var.backup_retention_period
+  multi_az                = var.multi_az
+  deletion_protection     = var.deletion_protection
+  skip_final_snapshot     = var.skip_final_snapshot 
 
   tags = {
     Name        = "contribnow-${var.environment}-postgres"
