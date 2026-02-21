@@ -55,3 +55,19 @@ Then run:
 .venv/bin/python -m src.pipeline.transform --raw-root "data/raw_<run_id>" --transform-root "data/transform_<run_id>" --top-n-hotspots 20
 .venv/bin/python -m src.pipeline.load --transform-root "data/transform_<run_id>" --output-root "data/output_<run_id>"
 ```
+
+## Terraform usage guide
+
+1. Install [Terraform]{https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli} and [AWS CLI]{https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html}.
+2. Run `aws configure` and enter your credentials.
+3. Navigate to environment
+```
+cd terraform/environments/dev
+```
+4. Run terraform
+```
+terraform init
+terraform plan
+terraform apply -var=db_password='<your password here>'
+```
+5. To destroy resources, run `terraform destroy`
