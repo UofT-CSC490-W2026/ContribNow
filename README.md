@@ -70,4 +70,13 @@ terraform init
 terraform plan
 terraform apply -var=db_password='<your password here>'
 ```
-5. To destroy resources, run `terraform destroy`
+5. Sync `.env` from Terraform outputs
+```
+export DB_PASSWORD='<your password here>' # or omit to get a hidden prompt
+.venv/bin/python scripts/sync_env_from_terraform.py \
+  --terraform-dir terraform/environments/prod \
+  --tenant-id workspace-dev \
+  --user-id <your-user-id> \
+  --tenant-salt <replace-with-strong-random-secret>
+```
+6. To destroy resources, run `terraform destroy`
