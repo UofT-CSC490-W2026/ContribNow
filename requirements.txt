@@ -1,0 +1,1 @@
+# Core ETL pipeline currently uses Python standard library only.
