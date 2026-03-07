@@ -130,10 +130,10 @@ image = (
     .add_local_file(
         local_path="./nanochat/pyproject.toml",
         remote_path="/root/nanochat/pyproject.toml",
+        copy=True,
     )
     .add_local_file(
-        local_path="./nanochat/uv.lock",
-        remote_path="/root/nanochat/uv.lock",
+        local_path="./nanochat/uv.lock", remote_path="/root/nanochat/uv.lock", copy=True
     )
     # Install Rust and uv
     .run_commands(
@@ -157,7 +157,7 @@ image = (
         "cd /root/nanochat && uv sync --extra gpu --no-install-project",
     )
     # Copy full source after dependencies to avoid invalidating the heavy `uv sync` layer
-    .add_local_dir(local_path="./nanochat", remote_path="/root/nanochat", copy=True)
+    .add_local_dir(local_path="./nanochat", remote_path="/root/nanochat")
     .run_commands("ls /root/nanochat/.venv/bin/python || echo 'VENV NOT FOUND'")
 )
 
