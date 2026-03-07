@@ -125,16 +125,9 @@ image = (
     ModalImage.from_registry("nvidia/cuda:12.8.1-devel-ubuntu24.04", add_python="3.11")
     # System dependencies
     .apt_install("git", "build-essential", "curl", "wget", "unzip")
+    # Copy nanochat repo into the image
+    .add_local_dir(local_path="./nanochat", remote_path="/root/nanochat", copy=True)
     .workdir("/root/nanochat")
-    # Copy only dependency manifests first so `uv sync` layer is stable across code edits
-    .add_local_file(
-        local_path="./nanochat/pyproject.toml",
-        remote_path="/root/nanochat/pyproject.toml",
-        copy=True,
-    )
-    .add_local_file(
-        local_path="./nanochat/uv.lock", remote_path="/root/nanochat/uv.lock", copy=True
-    )
     # Install Rust and uv
     .run_commands(
         "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
@@ -156,9 +149,6 @@ image = (
     .run_commands(
         "cd /root/nanochat && uv sync --extra gpu --no-install-project",
     )
-    # Copy full source after dependencies to avoid invalidating the heavy `uv sync` layer
-    .add_local_dir(local_path="./nanochat", remote_path="/root/nanochat")
-    .run_commands("ls /root/nanochat/.venv/bin/python || echo 'VENV NOT FOUND'")
 )
 
 # =============================================================================
