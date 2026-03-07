@@ -29,8 +29,10 @@ Notes
 
 import os
 import subprocess
+
 import modal
-from modal import App, Image as ModalImage, Volume, Secret
+from modal import App, Secret, Volume
+from modal import Image as ModalImage
 
 # =============================================================================
 # CONFIGURATION
@@ -177,9 +179,7 @@ image = (
 # =============================================================================
 
 
-def _python(
-    module: str, args: list | None = None, *, cwd: str = PROJECT_DIR
-) -> None:
+def _python(module: str, args: list | None = None, *, cwd: str = PROJECT_DIR) -> None:
     """Run `python -m {module} [args]` -- for non-distributed scripts."""
     args = args or []
     cmd = f"cd {cwd} && {VENV_BIN}/python -m {module} {' '.join(args)}"
@@ -362,6 +362,8 @@ def stage_pretrain(
     device_batch_size: int = DEVICE_BATCH_SIZE,
     wandb_run: str = WANDB_RUN,
     use_swiglu: bool = False,
+    n_kv_head: int | None = None,
+    n_kv_head_ratio: int = 1,
     model_tag: str = "",
 ) -> None:
     """
@@ -385,6 +387,8 @@ def stage_pretrain(
     Flags:
         --depth               Transformer depth; controls all other hparams
         --device-batch-size   Sequences per GPU per step (reduce if OOM)
+        --n-kv-head           KV heads for GQA (-1/omitted => n_head, i.e. MHA)
+        --n-kv-head-ratio     query:kv ratio (n_kv_head = n_head / ratio)
         --run                 WandB run name ("dummy" to disable logging)
         --save-every          Checkpoint every N steps (resume-friendly)
     """
@@ -398,7 +402,9 @@ def stage_pretrain(
     print(
         f"Starting pretraining: depth={depth}, "
         f"device_batch_size={device_batch_size}, "
-        f"nproc={_N_PRETRAIN_GPUS}, run={wandb_run}, use_swiglu={use_swiglu}"
+        f"nproc={_N_PRETRAIN_GPUS}, run={wandb_run}, "
+        f"use_swiglu={use_swiglu}, n_kv_head={n_kv_head}, "
+        f"n_kv_head_ratio={n_kv_head_ratio}"
     )
 
     # speedrun.sh: torchrun --standalone --nproc_per_node=$NPROC_PER_NODE
@@ -413,6 +419,10 @@ def stage_pretrain(
     ]
     if use_swiglu:
         train_args.append("--use-swiglu")
+    if n_kv_head is not None:
+        train_args.append(f"--n-kv-head={n_kv_head}")
+    if n_kv_head_ratio != 1:
+        train_args.append(f"--n-kv-head-ratio={n_kv_head_ratio}")
     _torchrun(
         "scripts.base_train",
         train_args,
@@ -634,6 +644,8 @@ def main(
     depth: int = DEPTH,
     num_shards: int = NUM_SHARDS,
     device_batch_size: int = DEVICE_BATCH_SIZE,
+    n_kv_head: int | None = None,
+    n_kv_head_ratio: int = 1,
     wandb_run: str = WANDB_RUN,
     sft_model_step: int | None = None,
 ) -> None:
@@ -663,7 +675,8 @@ def main(
     print("nanochat Speedrun -- Modal Edition")
     print(f"  Mirrors: runs/speedrun.sh")
     print(
-        f"  depth={depth}  shards={num_shards}  gpu={GPU_PRETRAIN}  wandb={wandb_run}"
+        f"  depth={depth}  shards={num_shards}  gpu={GPU_PRETRAIN}  "
+        f"n_kv_head={n_kv_head}  n_kv_head_ratio={n_kv_head_ratio}  wandb={wandb_run}"
     )
     print(
         f"  arch={'swiglu' if use_swiglu else 'relu2'}  model_tag={_base_model_tag(depth, use_swiglu)}"
@@ -687,6 +700,8 @@ def main(
     stage_pretrain.remote(
         depth=depth,
         device_batch_size=device_batch_size,
+        n_kv_head=n_kv_head,
+        n_kv_head_ratio=n_kv_head_ratio,
         wandb_run=wandb_run,
         use_swiglu=use_swiglu,
     )
