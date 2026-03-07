@@ -78,6 +78,9 @@ WANDB_RUN = "picochat-base-d16"
 VOLUME_MOUNT = "/vol"
 NANOCHAT_CACHE = f"{VOLUME_MOUNT}/nanochat_cache"  # mirrors $NANOCHAT_BASE_DIR
 BASE_DIR = "/data/.cache/nanochat"
+PROJECT_DIR = "/root/nanochat"
+DEPS_DIR = "/opt/nanochat_deps"
+VENV_BIN = f"{DEPS_DIR}/.venv/bin"
 
 # ── Timeout ───────────────────────────────────────────────────────────────────
 # Modal kills a container after this many seconds of wall-clock time.
@@ -125,9 +128,24 @@ image = (
     ModalImage.from_registry("nvidia/cuda:12.8.1-devel-ubuntu24.04", add_python="3.11")
     # System dependencies
     .apt_install("git", "build-essential", "curl", "wget", "unzip")
-    # Copy nanochat repo into the image
-    .add_local_dir(local_path="./nanochat", remote_path="/root/nanochat", copy=True)
-    .workdir("/root/nanochat")
+    # Copy only dependency metadata first so this layer remains cacheable
+    # across normal source-code edits.
+    .add_local_file(
+        local_path="./nanochat/pyproject.toml",
+        remote_path=f"{DEPS_DIR}/pyproject.toml",
+        copy=True,
+    )
+    .add_local_file(
+        local_path="./nanochat/uv.lock",
+        remote_path=f"{DEPS_DIR}/uv.lock",
+        copy=True,
+    )
+    # Required because pyproject sets readme = "README.md".
+    .add_local_file(
+        local_path="./nanochat/README.md",
+        remote_path=f"{DEPS_DIR}/README.md",
+        copy=True,
+    )
     # Install Rust and uv
     .run_commands(
         "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
@@ -143,12 +161,15 @@ image = (
             "OMP_NUM_THREADS": "1",
             "NANOCHAT_BASE_DIR": "/data/.cache/nanochat",
             "HF_HOME": "/data/.cache/huggingface",
-            "UV_CACHE_DIR": "/data/.cache/uv",
+            "UV_CACHE_DIR": "/tmp/uv-cache",
         }
     )
     .run_commands(
-        "cd /root/nanochat && uv sync --extra gpu --no-install-project",
+        f"cd {DEPS_DIR} && uv sync --extra gpu --no-install-project",
     )
+    # Copy source after deps install so code changes do not invalidate torch layer.
+    .add_local_dir(local_path="./nanochat", remote_path=PROJECT_DIR, copy=True)
+    .workdir(PROJECT_DIR)
 )
 
 # =============================================================================
@@ -157,11 +178,11 @@ image = (
 
 
 def _python(
-    module: str, args: list | None = None, *, cwd: str = "/root/nanochat"
+    module: str, args: list | None = None, *, cwd: str = PROJECT_DIR
 ) -> None:
     """Run `python -m {module} [args]` -- for non-distributed scripts."""
     args = args or []
-    cmd = f"cd {cwd} && uv run python -m {module} {' '.join(args)}"
+    cmd = f"cd {cwd} && {VENV_BIN}/python -m {module} {' '.join(args)}"
     _run(cmd)
 
 
@@ -180,8 +201,8 @@ def _torchrun(module: str, args: list | None = None, *, nproc: int) -> None:
     args = args or []
     args_str = (" -- " + " ".join(args)) if args else ""
     cmd = (
-        f"cd /root/nanochat && "
-        f"uv run torchrun --standalone --nproc_per_node={nproc} -m {module}{args_str}"
+        f"cd {PROJECT_DIR} && "
+        f"{VENV_BIN}/torchrun --standalone --nproc_per_node={nproc} -m {module}{args_str}"
     )
     print(cmd)
     _run(cmd)
@@ -466,7 +487,7 @@ def stage_sft(
     wandb_run: str = WANDB_RUN,
     depth: int = DEPTH,
     use_swiglu: bool = False,
-    model_step: int = 4357,
+    model_step: int | None = None,
     model_tag: str = "",
 ) -> None:
     """
@@ -509,13 +530,15 @@ def stage_sft(
     # speedrun.sh: torchrun ... -m scripts.chat_sft -- --run=$WANDB_RUN
     print("Running SFT...")
     resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
+    sft_args = [
+        f"--run={wandb_run}",
+        f"--model-tag={resolved_model_tag}",
+    ]
+    if model_step is not None:
+        sft_args.append(f"--model-step={model_step}")
     _torchrun(
         "scripts.chat_sft",
-        [
-            f"--run={wandb_run}",
-            f"--model-step={model_step}",
-            f"--model-tag={resolved_model_tag}",
-        ],
+        sft_args,
         nproc=_N_FINETUNE_GPUS,
     )
 
@@ -551,7 +574,7 @@ def stage_rl(
     wandb_run: str = WANDB_RUN,
     depth: int = DEPTH,
     use_swiglu: bool = False,
-    model_step: int = 4357,
+    model_step: int | None = None,
     model_tag: str = "",
 ) -> None:
     """
@@ -580,13 +603,15 @@ def stage_rl(
     print("Running RL (GRPO on GSM8K)...")
     # speedrun.sh: torchrun ... -m scripts.chat_rl -- --run=$WANDB_RUN
     resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
+    rl_args = [
+        f"--run={wandb_run}",
+        f"--model-tag={resolved_model_tag}",
+    ]
+    if model_step is not None:
+        rl_args.append(f"--model-step={model_step}")
     _torchrun(
         "scripts.chat_rl",
-        [
-            f"--run={wandb_run}",
-            f"--model-step={model_step}",
-            f"--model-tag={resolved_model_tag}",
-        ],
+        rl_args,
         nproc=_N_FINETUNE_GPUS,
     )
 
@@ -610,7 +635,7 @@ def main(
     num_shards: int = NUM_SHARDS,
     device_batch_size: int = DEVICE_BATCH_SIZE,
     wandb_run: str = WANDB_RUN,
-    sft_model_step: int = 4357,
+    sft_model_step: int | None = None,
 ) -> None:
     """
     Run the complete speedrun pipeline, mirroring runs/speedrun.sh end-to-end.
