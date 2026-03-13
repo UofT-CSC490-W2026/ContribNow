@@ -57,8 +57,8 @@ parser.add_argument("--init-lr-frac", type=float, default=0.05, help="initial LR
 parser.add_argument("--eval-every", type=int, default=60, help="evaluate pass@k every N steps")
 parser.add_argument("--eval-examples", type=int, default=400, help="number of examples for pass@k evaluation")
 parser.add_argument("--save-every", type=int, default=60, help="save checkpoint every N steps")
-# Output
-parser.add_argument("--output-tag", type=str, default=None, help="output tag to save to")
+# Reward config
+parser.add_argument("--reward-type", type=str, default="binary", help="reward system for rl")
 args = parser.parse_args()
 user_config = vars(args).copy()
 # -----------------------------------------------------------------------------
@@ -124,7 +124,9 @@ def get_batch():
             # Decode the generated response
             generated_text = tokenizer.decode(generated_tokens)
             # Calculate the reward
-            reward = train_task.reward(conversation, generated_text)
+            reward_type = args.reward_type
+            # print(f"Reward type in chat_rl is: {reward_type}")
+            reward = train_task.reward(conversation, generated_text, reward_type)
             rewards.append(reward)
 
         # Pad the sequences so that their lengths (in time) match
@@ -181,7 +183,7 @@ def run_gsm8k_eval(task, tokenizer, engine,
         for sample_tokens in generated_token_sequences:
             generated_tokens = sample_tokens[prefix_length:]
             generated_text = tokenizer.decode(generated_tokens)
-            is_correct = task.evaluate(conversation, generated_text)
+            is_correct = task.evaluate(conversation, generated_text, "binary")
             outcomes.append({
                 "is_correct": is_correct
             })
@@ -310,7 +312,7 @@ for step in range(num_steps):
     if master_process and ((step > 0 and step % args.save_every == 0) or step == num_steps - 1):
         base_dir = get_base_dir()
         depth = model.config.n_layer
-        output_dirname = args.output_tag if args.output_tag else f"d{depth}" # base the model tag on the depth of the base model
+        output_dirname = args.model_tag if args.model_tag else f"d{depth}" # base the model tag on the depth of the base model
         checkpoint_dir = os.path.join(base_dir, "chatrl_checkpoints", output_dirname)
         model_config_kwargs = model.config.__dict__ # slightly naughty, abusing the simplicity of GPTConfig, TODO nicer
         save_checkpoint(
