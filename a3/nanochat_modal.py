@@ -586,6 +586,7 @@ def stage_rl(
     use_swiglu: bool = False,
     model_step: int | None = None,
     model_tag: str = "",
+    reward_type: str = "binary"
 ) -> None:
     """
     Optional RL stage to boost math reasoning on GSM8K.
@@ -616,7 +617,9 @@ def stage_rl(
     rl_args = [
         f"--run={wandb_run}",
         f"--model-tag={resolved_model_tag}",
+        f"--reward-type={reward_type}"
     ]
+    print(f"RL Reward Type: {reward_type}")
     if model_step is not None:
         rl_args.append(f"--model-step={model_step}")
     _torchrun(
