@@ -499,6 +499,7 @@ def stage_sft(
     use_swiglu: bool = False,
     model_step: int | None = None,
     model_tag: str = "",
+    output_tag: str = ""
 ) -> None:
     """
     Supervised fine-tuning: teach the model to follow chat instructions.
@@ -540,9 +541,12 @@ def stage_sft(
     # speedrun.sh: torchrun ... -m scripts.chat_sft -- --run=$WANDB_RUN
     print("Running SFT...")
     resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
+    resolved_output_tag = output_tag or model_tag
     sft_args = [
         f"--run={wandb_run}",
         f"--model-tag={resolved_model_tag}",
+        f"--output-tag={resolved_output_tag}",
+        "--load-optimizer=0",
     ]
     if model_step is not None:
         sft_args.append(f"--model-step={model_step}")
