@@ -59,6 +59,8 @@ parser.add_argument("--eval-examples", type=int, default=400, help="number of ex
 parser.add_argument("--save-every", type=int, default=60, help="save checkpoint every N steps")
 # Output
 parser.add_argument("--output-tag", type=str, default=None, help="output tag to save to")
+# Reward config
+parser.add_argument("--reward-type", type=str, default="binary", help="reward system for rl")
 args = parser.parse_args()
 user_config = vars(args).copy()
 # -----------------------------------------------------------------------------
@@ -124,7 +126,9 @@ def get_batch():
             # Decode the generated response
             generated_text = tokenizer.decode(generated_tokens)
             # Calculate the reward
-            reward = train_task.reward(conversation, generated_text)
+            reward_type = args.reward_type
+            # print(f"Reward type in chat_rl is: {reward_type}")
+            reward = train_task.reward(conversation, generated_text, reward_type)
             rewards.append(reward)
 
         # Pad the sequences so that their lengths (in time) match
@@ -181,7 +185,7 @@ def run_gsm8k_eval(task, tokenizer, engine,
         for sample_tokens in generated_token_sequences:
             generated_tokens = sample_tokens[prefix_length:]
             generated_text = tokenizer.decode(generated_tokens)
-            is_correct = task.evaluate(conversation, generated_text)
+            is_correct = task.evaluate(conversation, generated_text, "binary")
             outcomes.append({
                 "is_correct": is_correct
             })

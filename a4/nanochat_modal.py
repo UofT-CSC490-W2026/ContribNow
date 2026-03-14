@@ -621,6 +621,8 @@ def stage_rl(
     use_swiglu: bool = False,
     model_step: int | None = None,
     model_tag: str = "",
+    reward_type: str = "binary",
+    output_tag: str = ""
 ) -> None:
     """
     Optional RL stage to boost math reasoning on GSM8K.
@@ -647,10 +649,12 @@ def stage_rl(
     print("Running RL (GRPO on GSM8K)...")
     # speedrun.sh: torchrun ... -m scripts.chat_rl -- --run=$WANDB_RUN
     resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
+    resolved_output_tag = output_tag or model_tag
     rl_args = [
         f"--run={wandb_run}",
         f"--model-tag={resolved_model_tag}",
-        f"--output-tag={resolved_model_tag}",
+        f"--reward-type={reward_type}",
+        f"--output-tag={resolved_output_tag}"
     ]
     if model_step is not None:
         rl_args.append(f"--model-step={model_step}")
