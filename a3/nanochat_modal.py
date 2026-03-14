@@ -88,7 +88,7 @@ VENV_BIN = f"{DEPS_DIR}/.venv/bin"
 # Modal kills a container after this many seconds of wall-clock time.
 # The pretrain timeout must be longer than your expected training time.
 PRETRAIN_TIMEOUT_SEC = 60 * 60 * 6  # 6 hours
-FINETUNE_TIMEOUT_SEC = 60 * 60 * 2  # 2 hours (SFT and RL are much shorter)
+FINETUNE_TIMEOUT_SEC = 60 * 60 * 6  # 2 hours (SFT and RL are much shorter)
 DOWNLOAD_TIMEOUT_SEC = 60 * 90  # 90 min for shard download
 
 # ── Derived: GPU count ────────────────────────────────────────────────────────
