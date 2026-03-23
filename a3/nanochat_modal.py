@@ -11,7 +11,7 @@ Individual stages (if you want to re-run one step):
     modal run nanochat_modal.py::stage_post_pretrain_eval
     modal run nanochat_modal.py::stage_sft
     modal run nanochat_modal.py::stage_rl          # optional
-    modal run nanochat_modal.py::stage_chat_sample
+    modal run nanochat_modal.py::stage_chat --prompt "Hello, who are you?"
 
 Cost reference (8×H100 at ~$31/hr for the node)
 ------------------------------------------------
@@ -28,6 +28,7 @@ Notes
 """
 
 import os
+import shlex
 import subprocess
 
 import modal
@@ -216,9 +217,15 @@ def _run(cmd: str) -> None:
         raise RuntimeError(f"Command exited with code {result.returncode}:\n  {cmd}")
 
 
-def _base_model_tag(depth: int, use_swiglu: bool) -> str:
+def _base_model_tag(
+    depth: int,
+    use_swiglu: bool,
+    n_kv_head: int | None = None,
+    n_kv_head_ratio: int = 1,
+) -> str:
     """Return canonical base checkpoint tag for architecture selection."""
-    return f"d{depth}-{'swiglu' if use_swiglu else 'relu2'}"
+    kv_tag = f"kvh{n_kv_head}" if n_kv_head is not None else f"kvr{n_kv_head_ratio}"
+    return f"d{depth}-{'swiglu' if use_swiglu else 'relu2'}-{kv_tag}"
 
 
 # def _setup_base_dir():
@@ -409,7 +416,12 @@ def stage_pretrain(
 
     # speedrun.sh: torchrun --standalone --nproc_per_node=$NPROC_PER_NODE
     #              -m scripts.base_train -- --depth=24 --device-batch-size=16 --run=...
-    resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
+    resolved_model_tag = model_tag or _base_model_tag(
+        depth,
+        use_swiglu,
+        n_kv_head=n_kv_head,
+        n_kv_head_ratio=n_kv_head_ratio,
+    )
     train_args = [
         f"--depth={depth}",
         f"--device-batch-size={device_batch_size}",
@@ -497,6 +509,8 @@ def stage_sft(
     wandb_run: str = WANDB_RUN,
     depth: int = DEPTH,
     use_swiglu: bool = False,
+    n_kv_head: int | None = None,
+    n_kv_head_ratio: int = 1,
     model_step: int | None = None,
     model_tag: str = "",
 ) -> None:
@@ -538,11 +552,17 @@ def stage_sft(
     _curl(IDENTITY_JSONL_URL, identity_dest)
 
     # speedrun.sh: torchrun ... -m scripts.chat_sft -- --run=$WANDB_RUN
-    print("Running SFT...")
-    resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
+    # print("Running SFT...")
+    resolved_model_tag = model_tag or _base_model_tag(
+        depth,
+        use_swiglu,
+        n_kv_head=n_kv_head,
+        n_kv_head_ratio=n_kv_head_ratio,
+    )
     sft_args = [
         f"--run={wandb_run}",
         f"--model-tag={resolved_model_tag}",
+        "--load-optimizer=0",
     ]
     if model_step is not None:
         sft_args.append(f"--model-step={model_step}")
@@ -560,6 +580,7 @@ def stage_sft(
         [
             "-i",
             "sft",
+            f"--model-tag={resolved_model_tag}",
         ],
         nproc=_N_FINETUNE_GPUS,
     )
@@ -584,6 +605,8 @@ def stage_rl(
     wandb_run: str = WANDB_RUN,
     depth: int = DEPTH,
     use_swiglu: bool = False,
+    n_kv_head: int | None = None,
+    n_kv_head_ratio: int = 1,
     model_step: int | None = None,
     model_tag: str = "",
 ) -> None:
@@ -612,7 +635,12 @@ def stage_rl(
 
     print("Running RL (GRPO on GSM8K)...")
     # speedrun.sh: torchrun ... -m scripts.chat_rl -- --run=$WANDB_RUN
-    resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
+    resolved_model_tag = model_tag or _base_model_tag(
+        depth,
+        use_swiglu,
+        n_kv_head=n_kv_head,
+        n_kv_head_ratio=n_kv_head_ratio,
+    )
     rl_args = [
         f"--run={wandb_run}",
         f"--model-tag={resolved_model_tag}",
@@ -627,10 +655,72 @@ def stage_rl(
 
     # speedrun.sh: torchrun ... -m scripts.chat_eval -- -i rl
     print("Evaluating RL checkpoint...")
-    _torchrun("scripts.chat_eval", ["-i", "rl"], nproc=_N_FINETUNE_GPUS)
+    _torchrun(
+        "scripts.chat_eval",
+        ["-i", "rl", f"--model-tag={resolved_model_tag}"],
+        nproc=_N_FINETUNE_GPUS,
+    )
 
     volume.commit()
     print("RL complete.")
+
+
+# =============================================================================
+# STAGE 6: ONE-SHOT CHAT (inference)
+# =============================================================================
+
+
+@app.function(
+    image=image,
+    secrets=[secret],
+    volumes={VOLUME_MOUNT: volume},
+    gpu="H100:1",
+    timeout=60 * 20,
+)
+def stage_chat(
+    prompt: str,
+    source: str = "sft",
+    temperature: float = 0.6,
+    top_k: int = 50,
+    depth: int = DEPTH,
+    use_swiglu: bool = False,
+    n_kv_head: int | None = None,
+    n_kv_head_ratio: int = 1,
+    model_step: int | None = None,
+    model_tag: str = "",
+) -> None:
+    """
+    One-shot chat inference against an existing chat checkpoint.
+
+    Example:
+        modal run nanochat_modal.py::stage_chat --prompt "Hello, who are you?"
+    """
+    _setup_cache()
+
+    if source not in {"sft", "rl"}:
+        raise ValueError("source must be one of: sft, rl")
+
+    resolved_model_tag = model_tag or _base_model_tag(
+        depth,
+        use_swiglu,
+        n_kv_head=n_kv_head,
+        n_kv_head_ratio=n_kv_head_ratio,
+    )
+    chat_args = [
+        f"-i {source}",
+        f"-g {resolved_model_tag}",
+        f"-t {temperature}",
+        f"-k {top_k}",
+        f"-p {shlex.quote(prompt)}",
+    ]
+    if model_step is not None:
+        chat_args.append(f"-s {model_step}")
+
+    print(
+        f"Running one-shot chat: source={source} model_tag={resolved_model_tag} "
+        f"step={model_step}"
+    )
+    _python("scripts.chat_cli", chat_args)
 
 
 # =============================================================================
@@ -679,7 +769,8 @@ def main(
         f"n_kv_head={n_kv_head}  n_kv_head_ratio={n_kv_head_ratio}  wandb={wandb_run}"
     )
     print(
-        f"  arch={'swiglu' if use_swiglu else 'relu2'}  model_tag={_base_model_tag(depth, use_swiglu)}"
+        f"  arch={'swiglu' if use_swiglu else 'relu2'}  "
+        f"model_tag={_base_model_tag(depth, use_swiglu, n_kv_head=n_kv_head, n_kv_head_ratio=n_kv_head_ratio)}"
     )
     print("=" * w + "\n")
 
@@ -720,6 +811,8 @@ def main(
         wandb_run=wandb_run,
         depth=depth,
         use_swiglu=use_swiglu,
+        n_kv_head=n_kv_head,
+        n_kv_head_ratio=n_kv_head_ratio,
         model_step=sft_model_step,
     )
 
