@@ -61,7 +61,6 @@ Output Layer (data/output_<run_id>/)
   "repo_slug": "string",
   "repo_url": "string",
   "head_commit": "string (SHA-1)",
-  "ingest_schema_version": 2,
   "structure_summary": {...},
   "hotspots": [...],
   "risk_levels": {...},
@@ -102,24 +101,31 @@ Output Layer (data/output_<run_id>/)
 ```json
 "structure_summary": {
   "total_files": 487,
-  "total_directories": 89,
-  "file_extensions": {
-    ".py": 342,
-    ".md": 45,
-    ".json": 12,
-    ...
-  },
-  "primary_language": "Python"
+  "top_level_directories": [
+    {"path": "src", "file_count": 342},
+    {"path": "tests", "file_count": 45},
+    {"path": "docs", "file_count": 30}
+  ],
+  "file_type_counts": [
+    {"extension": ".py", "count": 342},
+    {"extension": ".md", "count": 45},
+    {"extension": ".json", "count": 12}
+  ],
+  "start_here_candidates": [
+    {"path": "README.md", "score": 100, "reasons": ["project_overview"]},
+    {"path": "CONTRIBUTING.md", "score": 95, "reasons": ["contribution_guidelines"]},
+    {"path": "src/main.py", "score": 75, "reasons": ["application_entrypoint"]}
+  ]
 }
 ```
 - **Type:** Object
 - **Fields:**
   - `total_files`: Integer, count of non-ignored files
-  - `total_directories`: Integer, directory count
-  - `file_extensions`: Object<ext_name: count>
-  - `primary_language`: String, inferred from file distribution
-- **Purpose:** High-level repository statistics
-- **Constraint:** Extensions are lowercase with leading dot
+  - `top_level_directories`: Array of `{path: String, file_count: Integer}`, sorted by file_count descending
+  - `file_type_counts`: Array of `{extension: String, count: Integer}`, sorted by count descending
+  - `start_here_candidates`: Array of `{path: String, score: Integer, reasons: Array<String>}`, top 15 files scored by pattern matching against well-known entry points (README, CONTRIBUTING, Dockerfile, etc.), sorted by score descending
+- **Purpose:** High-level repository statistics and onboarding entry points
+- **Constraint:** Extensions are lowercase with leading dot; `"."` root directory is represented as `"."`
 
 ### 3.5 hotspots
 
@@ -128,12 +134,12 @@ Output Layer (data/output_<run_id>/)
   {
     "path": "src/core.py",
     "touch_count": 87,
-    "risk_level": "high"
+    "last_touched": "2026-03-10T14:22:00+00:00"
   },
   {
     "path": "src/utils.py",
     "touch_count": 42,
-    "risk_level": "medium"
+    "last_touched": "2026-03-08T09:15:00+00:00"
   }
 ]
 ```
@@ -142,52 +148,57 @@ Output Layer (data/output_<run_id>/)
 - **Fields per item:**
   - `path`: String, relative file path from repo root
   - `touch_count`: Integer ≥ 0, number of commits touching this file
-  - `risk_level`: Enum ("high" | "medium" | "low")
+  - `last_touched`: String (ISO 8601 date) or null, date of the most recent commit touching this file
 - **Ordering:** Sorted by `touch_count` descending
+- **Note:** Risk levels are computed separately in `risk_levels` (section 3.6), not embedded in hotspots
 - **Purpose:** Identify frequently-changing files
 - **RAG Usage:** Prioritize chunks from high-touch files, flag as potentially unstable
 
 ### 3.6 risk_levels
 
 ```json
-"risk_levels": {
-  "src/core.py": {
+"risk_levels": [
+  {
+    "path": "src/core.py",
     "risk_level": "high",
     "risk_score": 0.82,
     "factors": {
-      "churn_score": 0.85,
-      "author_diversity": 0.70,
-      "coupling_degree": 0.75
+      "touch_count": 87,
+      "distinct_authors": 8,
+      "co_change_degree": 5
     }
   },
-  "src/utils.py": {
+  {
+    "path": "src/utils.py",
     "risk_level": "medium",
     "risk_score": 0.58,
     "factors": {
-      "churn_score": 0.50,
-      "author_diversity": 0.60,
-      "coupling_degree": 0.65
+      "touch_count": 42,
+      "distinct_authors": 4,
+      "co_change_degree": 3
     }
   }
-}
+]
 ```
 
-- **Type:** Object<filepath: RiskRecord>
-- **RiskRecord Fields:**
+- **Type:** Array of Objects
+- **Fields per item:**
+  - `path`: String, relative file path from repo root
   - `risk_level`: Enum ("high" | "medium" | "low")
-  - `risk_score`: Float, 0.0 to 1.0
-  - `factors`: Object with three scores (each 0.0–1.0)
-    - `churn_score`: 50% weight, files changed frequently
-    - `author_diversity`: 30% weight, modified by many authors
-    - `coupling_degree`: 20% weight, co-changes with other files
-- **Scoring Formula:**
+  - `risk_score`: Float, 0.0 to 1.0 (rounded to 4 decimal places)
+  - `factors`: Object with raw values used as scoring inputs
+    - `touch_count`: Integer, number of commits touching this file (weight 50%)
+    - `distinct_authors`: Integer, number of unique authors (weight 30%)
+    - `co_change_degree`: Integer, number of co-change pairs involving this file (weight 20%)
+- **Scoring Formula:** Each factor is min-max normalised within the hotspot set, then combined:
   ```
-  risk_score = (0.5 × churn_score) + (0.3 × author_diversity) + (0.2 × coupling_degree)
+  risk_score = (0.5 × norm_touch_count) + (0.3 × norm_distinct_authors) + (0.2 × norm_co_change_degree)
   ```
 - **Thresholds:**
   - `high`: risk_score > 0.7
   - `medium`: risk_score ≥ 0.4 and ≤ 0.7
   - `low`: risk_score < 0.4
+- **Note:** `factors` contains the raw integer values; normalisation is applied internally to compute `risk_score`
 - **Purpose:** Multi-dimensional risk assessment for change management
 - **RAG Usage:** Filter chunks by risk level; attach risk metadata; warn about high-risk edits
 
@@ -222,35 +233,39 @@ Output Layer (data/output_<run_id>/)
 ### 3.8 authorship
 
 ```json
-"authorship": {
-  "src/core.py": {
+"authorship": [
+  {
+    "path": "src/core.py",
     "total_commits": 45,
     "distinct_authors": 8,
     "primary_contributors": [
-      {"author": "alice@example.com", "commits": 18},
-      {"author": "bob@example.com", "commits": 12},
-      {"author": "charlie@example.com", "commits": 7}
+      {"name": "Alice Smith", "commit_count": 18},
+      {"name": "Bob Jones", "commit_count": 12},
+      {"name": "Charlie Lee", "commit_count": 7}
     ]
   },
-  "src/utils.py": {
+  {
+    "path": "src/utils.py",
     "total_commits": 22,
     "distinct_authors": 4,
     "primary_contributors": [
-      {"author": "alice@example.com", "commits": 10},
-      {"author": "david@example.com", "commits": 8}
+      {"name": "Alice Smith", "commit_count": 10},
+      {"name": "David Park", "commit_count": 8}
     ]
   }
-}
+]
 ```
 
-- **Type:** Object<filepath: AuthorshipRecord>
-- **AuthorshipRecord Fields:**
+- **Type:** Array of Objects
+- **Fields per item:**
+  - `path`: String, relative file path from repo root
   - `total_commits`: Integer > 0, sum of all commits touching this file
   - `distinct_authors`: Integer > 0, count of unique authors
-  - `primary_contributors`: Array of ContributorRecord (sorted by commits desc)
-    - `author`: String, author email from git log
-    - `commits`: Integer, commit count by this author for this file
-- **Constraint:** `primary_contributors` typically top 5 (no strict limit)
+  - `primary_contributors`: Array of ContributorRecord (sorted by commit_count desc, top 3)
+    - `name`: String, author name from git log (`%aN`)
+    - `commit_count`: Integer, number of commits by this author for this file
+- **Constraint:** `primary_contributors` limited to top 3 contributors
+- **Note:** Only files present in the ingest file list are included; files with zero commits are omitted
 - **Purpose:** Track code ownership and context-sensitive expertise
 - **RAG Usage:** Suggest code reviewers; flag high-expertise areas; link chunks to maintainers
 
@@ -293,37 +308,31 @@ Output Layer (data/output_<run_id>/)
 
 ```json
 "conventions": {
-  "testing": {
-    "test_framework": "pytest",
-    "test_location_pattern": "tests/",
-    "evidence_files": ["pytest.ini", "setup.cfg", "pyproject.toml"]
+  "test_framework": {
+    "name": "pytest",
+    "config_path": "pytest.ini"
   },
-  "linting": {
-    "linters_detected": ["ruff", "black"],
-    "config_files": [".ruff.toml", "pyproject.toml"]
-  },
-  "ci_cd": {
-    "platforms": ["GitHub Actions"],
-    "workflow_files": [".github/workflows/tests.yml"]
-  },
-  "contribution_docs": {
-    "files_found": ["CONTRIBUTING.md"],
-    "has_contributing_guide": true
-  },
-  "package_manager": {
-    "manager": "pip",
-    "config_files": ["setup.py", "pyproject.toml", "requirements.txt"]
-  }
+  "test_dirs": ["tests"],
+  "linters": [
+    {"name": "ruff", "config_path": ".ruff.toml"},
+    {"name": "black", "config_path": "pyproject.toml"}
+  ],
+  "ci_pipelines": [
+    {"platform": "github_actions", "config_path": ".github/workflows/tests.yml"}
+  ],
+  "contribution_docs": ["CONTRIBUTING.md"],
+  "package_manager": "poetry"
 }
 ```
 
-- **Type:** Object with keys: `testing`, `linting`, `ci_cd`, `contribution_docs`, `package_manager`
-- **Sub-schemas:**
-  - **testing:** Boolean field `test_framework` (string or null), `test_location_pattern` (string), `evidence_files` (array)
-  - **linting:** `linters_detected` (array of names), `config_files` (array of paths)
-  - **ci_cd:** `platforms` (array), `workflow_files` (array)
-  - **contribution_docs:** `files_found` (array), `has_contributing_guide` (boolean)
-  - **package_manager:** `manager` (string, e.g., "pip", "npm"), `config_files` (array)
+- **Type:** Object with keys: `test_framework`, `test_dirs`, `linters`, `ci_pipelines`, `contribution_docs`, `package_manager`
+- **Fields:**
+  - `test_framework`: Object `{name: String, config_path: String}` or null if none detected. Supported: `pytest`, `jest`
+  - `test_dirs`: Array of Strings, top-level directories matching common test directory names (e.g., `tests`, `test`, `__tests__`, `spec`)
+  - `linters`: Array of `{name: String, config_path: String}`. Detected linters/formatters include: `editorconfig`, `ruff`, `flake8`, `eslint`, `prettier`, `black`
+  - `ci_pipelines`: Array of `{platform: String, config_path: String}`. Detected platforms: `github_actions`, `gitlab_ci`, `jenkins`, `circleci`, `travis_ci`
+  - `contribution_docs`: Array of Strings, paths to contribution-related files (e.g., `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `PULL_REQUEST_TEMPLATE.md`)
+  - `package_manager`: String or null. Detected via lockfile presence: `poetry`, `pipenv`, `npm`, `yarn`, `pnpm`, `cargo`, `go_modules`, `bundler`
 - **Purpose:** Surface practical contribution norms for onboarding guides
 - **RAG Usage:** Mention conventions in generated summaries; suggest adherence in recommendations
 
@@ -331,23 +340,21 @@ Output Layer (data/output_<run_id>/)
 
 ```json
 "transform_metadata": {
-  "schema_version": 2,
-  "transform_timestamp": "2026-03-16T15:23:45Z",
-  "git_depth": 500,
+  "generated_at": "2026-03-16T15:23:45Z",
   "top_n_hotspots": 20,
-  "co_change_threshold": 3
+  "commits_analyzed": 487,
+  "source_ingest_path": "data/raw_20260316.../pallets__markupsafe/ingest.json"
 }
 ```
 
 - **Type:** Object
 - **Fields:**
-  - `schema_version`: Integer, current version is 2
-  - `transform_timestamp`: ISO 8601 string, when transform ran
-  - `git_depth`: Integer, depth of git clone used
-  - `top_n_hotspots`: Integer, how many hotspots were computed
-  - `co_change_threshold`: Integer, minimum co-occurrences to include pair
-- **Purpose:** Pipeline operational metadata and versioning
-- **RAG Usage:** Interpret data version; understand pipeline parameters
+  - `generated_at`: ISO 8601 string, when the transform ran (via `utc_now()`)
+  - `top_n_hotspots`: Integer, maximum number of hotspots computed
+  - `commits_analyzed`: Integer, total number of commits parsed from git log
+  - `source_ingest_path`: String, filesystem path to the ingest.json used as input
+- **Purpose:** Pipeline operational metadata and provenance
+- **RAG Usage:** Understand pipeline parameters; trace back to source ingest
 
 ---
 
