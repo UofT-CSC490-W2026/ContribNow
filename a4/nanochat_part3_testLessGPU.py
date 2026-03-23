@@ -11,7 +11,7 @@ Individual stages (if you want to re-run one step):
     modal run nanochat_modal.py::stage_post_pretrain_eval
     modal run nanochat_modal.py::stage_sft
     modal run nanochat_modal.py::stage_rl          # optional
-    modal run nanochat_modal.py::stage_chat --prompt "Hello, who are you?"
+    modal run nanochat_modal.py::stage_chat_sample
 
 Cost reference (8×H100 at ~$31/hr for the node)
 ------------------------------------------------
@@ -28,12 +28,10 @@ Notes
 """
 
 import os
-import shlex
+import shutil
 import subprocess
-
 import modal
-from modal import App, Secret, Volume
-from modal import Image as ModalImage
+from modal import App, Image as ModalImage, Volume, Secret
 
 # =============================================================================
 # CONFIGURATION
@@ -89,7 +87,7 @@ VENV_BIN = f"{DEPS_DIR}/.venv/bin"
 # Modal kills a container after this many seconds of wall-clock time.
 # The pretrain timeout must be longer than your expected training time.
 PRETRAIN_TIMEOUT_SEC = 60 * 60 * 6  # 6 hours
-FINETUNE_TIMEOUT_SEC = 60 * 60 * 6  # 2 hours (SFT and RL are much shorter)
+FINETUNE_TIMEOUT_SEC = 60 * 60 * 2  # 2 hours (SFT and RL are much shorter)
 DOWNLOAD_TIMEOUT_SEC = 60 * 90  # 90 min for shard download
 
 # ── Derived: GPU count ────────────────────────────────────────────────────────
@@ -109,7 +107,7 @@ IDENTITY_JSONL_URL = (
 # MODAL PRIMITIVES — App, Volume, Secret, Image
 # =============================================================================
 
-app = modal.App("nanochat-speedrun")
+app = modal.App("picochat-d16-base-part3")
 
 # Persistent network volume: survives container shutdowns.
 # Stores downloaded shards (~24GB), tokenizer, checkpoints, eval bundle.
@@ -180,7 +178,9 @@ image = (
 # =============================================================================
 
 
-def _python(module: str, args: list | None = None, *, cwd: str = PROJECT_DIR) -> None:
+def _python(
+    module: str, args: list | None = None, *, cwd: str = PROJECT_DIR
+) -> None:
     """Run `python -m {module} [args]` -- for non-distributed scripts."""
     args = args or []
     cmd = f"cd {cwd} && {VENV_BIN}/python -m {module} {' '.join(args)}"
@@ -217,15 +217,9 @@ def _run(cmd: str) -> None:
         raise RuntimeError(f"Command exited with code {result.returncode}:\n  {cmd}")
 
 
-def _base_model_tag(
-    depth: int,
-    use_swiglu: bool,
-    n_kv_head: int | None = None,
-    n_kv_head_ratio: int = 1,
-) -> str:
+def _base_model_tag(depth: int, use_swiglu: bool) -> str:
     """Return canonical base checkpoint tag for architecture selection."""
-    kv_tag = f"kvh{n_kv_head}" if n_kv_head is not None else f"kvr{n_kv_head_ratio}"
-    return f"d{depth}-{'swiglu' if use_swiglu else 'relu2'}-{kv_tag}"
+    return f"d{depth}-{'swiglu' if use_swiglu else 'relu2'}"
 
 
 # def _setup_base_dir():
@@ -252,13 +246,39 @@ def _setup_cache() -> None:
     """
     # _setup_base_dir()
     os.makedirs(NANOCHAT_CACHE, exist_ok=True)
+    os.makedirs(os.path.dirname(BASE_DIR), exist_ok=True)
 
-    if not os.path.lexists(BASE_DIR):
-        os.makedirs("/data/.cache/", exist_ok=True)
-        os.symlink(NANOCHAT_CACHE, BASE_DIR)
-        print(f"Symlinked {BASE_DIR} -> {NANOCHAT_CACHE}")
-    else:
-        print(f"Cache symlink already exists: {BASE_DIR}")
+    # We must guarantee BASE_DIR points to the persistent volume mount.
+    # Some containers can have BASE_DIR pre-created as a normal directory.
+    # In that case, migrate any local contents into the volume and replace
+    # with a symlink so all stages read/write the same persistent path.
+    if os.path.islink(BASE_DIR):
+        resolved = os.path.realpath(BASE_DIR)
+        expected = os.path.realpath(NANOCHAT_CACHE)
+        if resolved != expected:
+            os.unlink(BASE_DIR)
+            os.symlink(NANOCHAT_CACHE, BASE_DIR)
+            print(f"Re-symlinked {BASE_DIR} -> {NANOCHAT_CACHE}")
+        else:
+            print(f"Cache symlink already exists: {BASE_DIR}")
+        return
+
+    if os.path.exists(BASE_DIR):
+        if os.path.isdir(BASE_DIR):
+            print(f"Migrating existing cache directory into volume: {BASE_DIR} -> {NANOCHAT_CACHE}")
+            for name in os.listdir(BASE_DIR):
+                src = os.path.join(BASE_DIR, name)
+                dst = os.path.join(NANOCHAT_CACHE, name)
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, dst)
+            shutil.rmtree(BASE_DIR)
+        else:
+            os.remove(BASE_DIR)
+
+    os.symlink(NANOCHAT_CACHE, BASE_DIR)
+    print(f"Symlinked {BASE_DIR} -> {NANOCHAT_CACHE}")
 
 
 def _curl(url: str, dest: str) -> None:
@@ -369,9 +389,12 @@ def stage_pretrain(
     device_batch_size: int = DEVICE_BATCH_SIZE,
     wandb_run: str = WANDB_RUN,
     use_swiglu: bool = False,
-    n_kv_head: int | None = None,
-    n_kv_head_ratio: int = 1,
     model_tag: str = "",
+    max_seq_len: int = 2048,
+    num_iterations: int | None = None,
+    resume_from_step: int | None = None,
+    save_every: int = 1000,
+    reset_report: bool = True,
 ) -> None:
     """
     Pretrain the base GPT model on FineWeb-EDU from random initialization.
@@ -394,8 +417,6 @@ def stage_pretrain(
     Flags:
         --depth               Transformer depth; controls all other hparams
         --device-batch-size   Sequences per GPU per step (reduce if OOM)
-        --n-kv-head           KV heads for GQA (-1/omitted => n_head, i.e. MHA)
-        --n-kv-head-ratio     query:kv ratio (n_kv_head = n_head / ratio)
         --run                 WandB run name ("dummy" to disable logging)
         --save-every          Checkpoint every N steps (resume-friendly)
     """
@@ -403,38 +424,37 @@ def stage_pretrain(
 
     # speedrun.sh: python -m nanochat.report reset
     # Resets the markdown report file and writes system info + run timestamp.
-    print("Resetting training report...")
-    _python("nanochat.report", ["reset"])
+    if reset_report:
+        print("Resetting training report...")
+        _python("nanochat.report", ["reset"])
+    else:
+        print("Skipping report reset (continuation run).")
 
     print(
         f"Starting pretraining: depth={depth}, "
+        f"max_seq_len={max_seq_len}, "
         f"device_batch_size={device_batch_size}, "
-        f"nproc={_N_PRETRAIN_GPUS}, run={wandb_run}, "
-        f"use_swiglu={use_swiglu}, n_kv_head={n_kv_head}, "
-        f"n_kv_head_ratio={n_kv_head_ratio}"
+        f"nproc={_N_PRETRAIN_GPUS}, run={wandb_run}, use_swiglu={use_swiglu}, "
+        f"num_iterations={num_iterations}, resume_from_step={resume_from_step}"
     )
 
     # speedrun.sh: torchrun --standalone --nproc_per_node=$NPROC_PER_NODE
     #              -m scripts.base_train -- --depth=24 --device-batch-size=16 --run=...
-    resolved_model_tag = model_tag or _base_model_tag(
-        depth,
-        use_swiglu,
-        n_kv_head=n_kv_head,
-        n_kv_head_ratio=n_kv_head_ratio,
-    )
+    resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
     train_args = [
         f"--depth={depth}",
+        f"--max-seq-len={max_seq_len}",
         f"--device-batch-size={device_batch_size}",
         f"--run={wandb_run}",
         f"--model-tag={resolved_model_tag}",
-        "--save-every=1000",  # checkpoint every 1k steps for resilience
+        f"--save-every={save_every}",
     ]
+    if num_iterations is not None:
+        train_args.append(f"--num-iterations={num_iterations}")
+    if resume_from_step is not None:
+        train_args.append(f"--resume-from-step={resume_from_step}")
     if use_swiglu:
         train_args.append("--use-swiglu")
-    if n_kv_head is not None:
-        train_args.append(f"--n-kv-head={n_kv_head}")
-    if n_kv_head_ratio != 1:
-        train_args.append(f"--n-kv-head-ratio={n_kv_head_ratio}")
     _torchrun(
         "scripts.base_train",
         train_args,
@@ -443,6 +463,101 @@ def stage_pretrain(
 
     volume.commit()
     print("Pretraining complete.")
+
+
+@app.function(
+    image=image,
+    secrets=[secret],
+    volumes={VOLUME_MOUNT: volume},
+    cpu=4,
+    memory=8192,
+    timeout=60 * 20,
+)
+def stage_clone_base_checkpoint(
+    source_model_tag: str,
+    target_model_tag: str,
+    step: int,
+) -> None:
+    """Clone a base checkpoint step to a new model_tag directory for continued training."""
+    _setup_cache()
+    base_ckpt_root = os.path.join(NANOCHAT_CACHE, "base_checkpoints")
+    source_dir = os.path.join(base_ckpt_root, source_model_tag)
+    target_dir = os.path.join(base_ckpt_root, target_model_tag)
+
+    if not os.path.isdir(source_dir):
+        raise FileNotFoundError(f"Source checkpoint directory does not exist: {source_dir}")
+
+    os.makedirs(target_dir, exist_ok=True)
+
+    model_file = f"model_{step:06d}.pt"
+    meta_file = f"meta_{step:06d}.json"
+    required = [model_file, meta_file]
+    for fname in required:
+        source_path = os.path.join(source_dir, fname)
+        if not os.path.exists(source_path):
+            raise FileNotFoundError(f"Missing required checkpoint artifact: {source_path}")
+        _run(f"cp {source_path} {os.path.join(target_dir, fname)}")
+
+    optim_prefix = f"optim_{step:06d}_rank"
+    copied_optim = 0
+    for fname in os.listdir(source_dir):
+        if fname.startswith(optim_prefix) and fname.endswith(".pt"):
+            _run(f"cp {os.path.join(source_dir, fname)} {os.path.join(target_dir, fname)}")
+            copied_optim += 1
+
+    if copied_optim == 0:
+        raise FileNotFoundError(
+            f"No optimizer shards found for step {step} in {source_dir}."
+        )
+
+    volume.commit()
+    print(
+        f"Cloned checkpoint step {step} from {source_model_tag} to {target_model_tag} "
+        f"(optimizer shards copied: {copied_optim})."
+    )
+
+
+@app.function(
+    image=image,
+    secrets=[secret],
+    volumes={VOLUME_MOUNT: volume},
+    gpu=GPU_PRETRAIN,
+    timeout=60 * 60 * 3,
+)
+def stage_compare_part3_checkpoints(
+    short_model_tag: str = "picochat-d16-base-part3-short",
+    short_step: int = 3500,
+    extend_model_tag: str = "picochat-d16-base-part3-extend",
+) -> None:
+    """Run base evaluation tasks for both part3 checkpoints for direct comparison."""
+    _setup_cache()
+
+    eval_bundle_dir = os.path.join(NANOCHAT_CACHE, "eval_bundle")
+    if not os.path.isdir(eval_bundle_dir):
+        print("Downloading eval bundle (~1GB)...")
+        zip_path = "/tmp/eval_bundle.zip"
+        _curl(EVAL_BUNDLE_URL, zip_path)
+        _run(f"unzip -q {zip_path} -d {NANOCHAT_CACHE} && rm {zip_path}")
+        volume.commit()
+
+    print(
+        f"Evaluating short-context checkpoint: model_tag={short_model_tag}, step={short_step}"
+    )
+    _torchrun(
+        "scripts.base_eval",
+        [f"--model-tag={short_model_tag}", f"--step={short_step}"],
+        nproc=_N_PRETRAIN_GPUS,
+    )
+
+    print(f"Evaluating extended-context checkpoint: model_tag={extend_model_tag}")
+    _torchrun(
+        "scripts.base_eval",
+        [f"--model-tag={extend_model_tag}"],
+        nproc=_N_PRETRAIN_GPUS,
+    )
+
+    volume.commit()
+    print("Part 3 checkpoint comparison complete.")
 
 
 # =============================================================================
@@ -509,8 +624,6 @@ def stage_sft(
     wandb_run: str = WANDB_RUN,
     depth: int = DEPTH,
     use_swiglu: bool = False,
-    n_kv_head: int | None = None,
-    n_kv_head_ratio: int = 1,
     model_step: int | None = None,
     model_tag: str = "",
 ) -> None:
@@ -552,17 +665,11 @@ def stage_sft(
     _curl(IDENTITY_JSONL_URL, identity_dest)
 
     # speedrun.sh: torchrun ... -m scripts.chat_sft -- --run=$WANDB_RUN
-    # print("Running SFT...")
-    resolved_model_tag = model_tag or _base_model_tag(
-        depth,
-        use_swiglu,
-        n_kv_head=n_kv_head,
-        n_kv_head_ratio=n_kv_head_ratio,
-    )
+    print("Running SFT...")
+    resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
     sft_args = [
         f"--run={wandb_run}",
         f"--model-tag={resolved_model_tag}",
-        "--load-optimizer=0",
     ]
     if model_step is not None:
         sft_args.append(f"--model-step={model_step}")
@@ -580,7 +687,6 @@ def stage_sft(
         [
             "-i",
             "sft",
-            f"--model-tag={resolved_model_tag}",
         ],
         nproc=_N_FINETUNE_GPUS,
     )
@@ -605,11 +711,8 @@ def stage_rl(
     wandb_run: str = WANDB_RUN,
     depth: int = DEPTH,
     use_swiglu: bool = False,
-    n_kv_head: int | None = None,
-    n_kv_head_ratio: int = 1,
     model_step: int | None = None,
     model_tag: str = "",
-    reward_type: str = "binary"
 ) -> None:
     """
     Optional RL stage to boost math reasoning on GSM8K.
@@ -636,18 +739,11 @@ def stage_rl(
 
     print("Running RL (GRPO on GSM8K)...")
     # speedrun.sh: torchrun ... -m scripts.chat_rl -- --run=$WANDB_RUN
-    resolved_model_tag = model_tag or _base_model_tag(
-        depth,
-        use_swiglu,
-        n_kv_head=n_kv_head,
-        n_kv_head_ratio=n_kv_head_ratio,
-    )
+    resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
     rl_args = [
         f"--run={wandb_run}",
         f"--model-tag={resolved_model_tag}",
-        f"--reward-type={reward_type}"
     ]
-    print(f"RL Reward Type: {reward_type}")
     if model_step is not None:
         rl_args.append(f"--model-step={model_step}")
     _torchrun(
@@ -658,72 +754,10 @@ def stage_rl(
 
     # speedrun.sh: torchrun ... -m scripts.chat_eval -- -i rl
     print("Evaluating RL checkpoint...")
-    _torchrun(
-        "scripts.chat_eval",
-        ["-i", "rl", f"--model-tag={resolved_model_tag}"],
-        nproc=_N_FINETUNE_GPUS,
-    )
+    _torchrun("scripts.chat_eval", ["-i", "rl"], nproc=_N_FINETUNE_GPUS)
 
     volume.commit()
     print("RL complete.")
-
-
-# =============================================================================
-# STAGE 6: ONE-SHOT CHAT (inference)
-# =============================================================================
-
-
-@app.function(
-    image=image,
-    secrets=[secret],
-    volumes={VOLUME_MOUNT: volume},
-    gpu="H100:1",
-    timeout=60 * 20,
-)
-def stage_chat(
-    prompt: str,
-    source: str = "sft",
-    temperature: float = 0.6,
-    top_k: int = 50,
-    depth: int = DEPTH,
-    use_swiglu: bool = False,
-    n_kv_head: int | None = None,
-    n_kv_head_ratio: int = 1,
-    model_step: int | None = None,
-    model_tag: str = "",
-) -> None:
-    """
-    One-shot chat inference against an existing chat checkpoint.
-
-    Example:
-        modal run nanochat_modal.py::stage_chat --prompt "Hello, who are you?"
-    """
-    _setup_cache()
-
-    if source not in {"sft", "rl"}:
-        raise ValueError("source must be one of: sft, rl")
-
-    resolved_model_tag = model_tag or _base_model_tag(
-        depth,
-        use_swiglu,
-        n_kv_head=n_kv_head,
-        n_kv_head_ratio=n_kv_head_ratio,
-    )
-    chat_args = [
-        f"-i {source}",
-        f"-g {resolved_model_tag}",
-        f"-t {temperature}",
-        f"-k {top_k}",
-        f"-p {shlex.quote(prompt)}",
-    ]
-    if model_step is not None:
-        chat_args.append(f"-s {model_step}")
-
-    print(
-        f"Running one-shot chat: source={source} model_tag={resolved_model_tag} "
-        f"step={model_step}"
-    )
-    _python("scripts.chat_cli", chat_args)
 
 
 # =============================================================================
@@ -737,8 +771,6 @@ def main(
     depth: int = DEPTH,
     num_shards: int = NUM_SHARDS,
     device_batch_size: int = DEVICE_BATCH_SIZE,
-    n_kv_head: int | None = None,
-    n_kv_head_ratio: int = 1,
     wandb_run: str = WANDB_RUN,
     sft_model_step: int | None = None,
 ) -> None:
@@ -768,12 +800,10 @@ def main(
     print("nanochat Speedrun -- Modal Edition")
     print(f"  Mirrors: runs/speedrun.sh")
     print(
-        f"  depth={depth}  shards={num_shards}  gpu={GPU_PRETRAIN}  "
-        f"n_kv_head={n_kv_head}  n_kv_head_ratio={n_kv_head_ratio}  wandb={wandb_run}"
+        f"  depth={depth}  shards={num_shards}  gpu={GPU_PRETRAIN}  wandb={wandb_run}"
     )
     print(
-        f"  arch={'swiglu' if use_swiglu else 'relu2'}  "
-        f"model_tag={_base_model_tag(depth, use_swiglu, n_kv_head=n_kv_head, n_kv_head_ratio=n_kv_head_ratio)}"
+        f"  arch={'swiglu' if use_swiglu else 'relu2'}  model_tag={_base_model_tag(depth, use_swiglu)}"
     )
     print("=" * w + "\n")
 
@@ -794,8 +824,6 @@ def main(
     stage_pretrain.remote(
         depth=depth,
         device_batch_size=device_batch_size,
-        n_kv_head=n_kv_head,
-        n_kv_head_ratio=n_kv_head_ratio,
         wandb_run=wandb_run,
         use_swiglu=use_swiglu,
     )
@@ -814,8 +842,6 @@ def main(
         wandb_run=wandb_run,
         depth=depth,
         use_swiglu=use_swiglu,
-        n_kv_head=n_kv_head,
-        n_kv_head_ratio=n_kv_head_ratio,
         model_step=sft_model_step,
     )
 
@@ -823,6 +849,88 @@ def main(
     print("Speedrun complete!")
     print("  Checkpoints + report are in the 'nanochat-vol' Modal Volume.")
     print("  Optional RL stage: modal run nanochat_modal.py::stage_rl")
+    print("=" * w + "\n")
+
+
+@app.local_entrypoint()
+def part3_context_extension(
+    num_shards: int = NUM_SHARDS,
+    device_batch_size: int = DEVICE_BATCH_SIZE,
+    use_swiglu: bool = False,
+    short_model_tag: str = "picochat-d16-base-part3-short",
+    extend_model_tag: str = "picochat-d16-base-part3-extend",
+    short_num_iterations: int = 3500,
+    short_seq_len: int = 512,
+    extended_seq_len: int = 2048,
+    run_eval_comparison: bool = True,
+) -> None:
+    """
+    Assignment Part 3 pipeline:
+      1) Train d16 base model at short context (default 512) for 3500 steps.
+      2) Resume from that checkpoint at long context (default 2048) until default horizon.
+      3) Evaluate both checkpoints using current base evaluation tasks.
+    """
+    w = 72
+    print("\n" + "=" * w)
+    print("Part 3 -- Context Window Extension (Modal)")
+    print(
+        f"depth=16  shards={num_shards}  short_ctx={short_seq_len}  "
+        f"short_steps={short_num_iterations}  long_ctx={extended_seq_len}"
+    )
+    print(f"short_tag={short_model_tag}")
+    print(f"extend_tag={extend_model_tag}")
+    print("=" * w + "\n")
+
+    print("[1/6] Downloading dataset shards...")
+    stage_data.remote(num_shards=num_shards)
+
+    print("[2/6] Training tokenizer...")
+    stage_tokenizer.remote()
+
+    print("[3/6] Short-context pretraining (checkpoint 1)...")
+    stage_pretrain.remote(
+        depth=16,
+        device_batch_size=device_batch_size,
+        wandb_run=short_model_tag,
+        use_swiglu=use_swiglu,
+        model_tag=short_model_tag,
+        max_seq_len=short_seq_len,
+        num_iterations=short_num_iterations,
+        save_every=1000,
+        reset_report=True,
+    )
+
+    print("[4/6] Preparing resume checkpoint under extended model tag...")
+    stage_clone_base_checkpoint.remote(
+        source_model_tag=short_model_tag,
+        target_model_tag=extend_model_tag,
+        step=short_num_iterations,
+    )
+
+    print("[5/6] Extended-context resumed pretraining (checkpoint 2)...")
+    stage_pretrain.remote(
+        depth=16,
+        device_batch_size=device_batch_size, # use batch size of 64 instead of 16
+        wandb_run=extend_model_tag,
+        use_swiglu=use_swiglu,
+        model_tag=extend_model_tag,
+        max_seq_len=extended_seq_len,
+        resume_from_step=short_num_iterations,
+        save_every=1000,
+        reset_report=False,
+    )
+
+    if run_eval_comparison:
+        print("[6/6] Running base eval tasks for checkpoint comparison...")
+        stage_compare_part3_checkpoints.remote(
+            short_model_tag=short_model_tag,
+            short_step=short_num_iterations,
+            extend_model_tag=extend_model_tag,
+        )
+
+    print("\n" + "=" * w)
+    print("Part 3 pipeline complete.")
+    print("Use stage_compare_part3_checkpoints to re-run the comparison step only.")
     print("=" * w + "\n")
 
 
@@ -871,7 +979,7 @@ def quick_test() -> None:
     _torchrun(
         "scripts.base_train",
         [
-            "--depth=12",
+            "--depth=6", # quicker test
             "--device-batch-size=32",
             "--run=dummy",
             "--core-metric-every=999999",  # skip CORE during training (it's slow)

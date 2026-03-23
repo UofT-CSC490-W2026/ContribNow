@@ -11,7 +11,7 @@ Individual stages (if you want to re-run one step):
     modal run nanochat_modal.py::stage_post_pretrain_eval
     modal run nanochat_modal.py::stage_sft
     modal run nanochat_modal.py::stage_rl          # optional
-    modal run nanochat_modal.py::stage_chat --prompt "Hello, who are you?"
+    modal run nanochat_modal.py::stage_chat_sample
 
 Cost reference (8×H100 at ~$31/hr for the node)
 ------------------------------------------------
@@ -28,7 +28,6 @@ Notes
 """
 
 import os
-import shlex
 import subprocess
 
 import modal
@@ -89,7 +88,7 @@ VENV_BIN = f"{DEPS_DIR}/.venv/bin"
 # Modal kills a container after this many seconds of wall-clock time.
 # The pretrain timeout must be longer than your expected training time.
 PRETRAIN_TIMEOUT_SEC = 60 * 60 * 6  # 6 hours
-FINETUNE_TIMEOUT_SEC = 60 * 60 * 6  # 2 hours (SFT and RL are much shorter)
+FINETUNE_TIMEOUT_SEC = 60 * 60 * 2  # 2 hours (SFT and RL are much shorter)
 DOWNLOAD_TIMEOUT_SEC = 60 * 90  # 90 min for shard download
 
 # ── Derived: GPU count ────────────────────────────────────────────────────────
@@ -217,15 +216,9 @@ def _run(cmd: str) -> None:
         raise RuntimeError(f"Command exited with code {result.returncode}:\n  {cmd}")
 
 
-def _base_model_tag(
-    depth: int,
-    use_swiglu: bool,
-    n_kv_head: int | None = None,
-    n_kv_head_ratio: int = 1,
-) -> str:
+def _base_model_tag(depth: int, use_swiglu: bool) -> str:
     """Return canonical base checkpoint tag for architecture selection."""
-    kv_tag = f"kvh{n_kv_head}" if n_kv_head is not None else f"kvr{n_kv_head_ratio}"
-    return f"d{depth}-{'swiglu' if use_swiglu else 'relu2'}-{kv_tag}"
+    return f"d{depth}-{'swiglu' if use_swiglu else 'relu2'}"
 
 
 # def _setup_base_dir():
@@ -416,12 +409,7 @@ def stage_pretrain(
 
     # speedrun.sh: torchrun --standalone --nproc_per_node=$NPROC_PER_NODE
     #              -m scripts.base_train -- --depth=24 --device-batch-size=16 --run=...
-    resolved_model_tag = model_tag or _base_model_tag(
-        depth,
-        use_swiglu,
-        n_kv_head=n_kv_head,
-        n_kv_head_ratio=n_kv_head_ratio,
-    )
+    resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
     train_args = [
         f"--depth={depth}",
         f"--device-batch-size={device_batch_size}",
@@ -505,14 +493,58 @@ def stage_post_pretrain_eval() -> None:
     gpu=GPU_FINETUNE,
     timeout=FINETUNE_TIMEOUT_SEC,
 )
+def stage_eval(
+    source: str = "sft",
+    wandb_run: str = WANDB_RUN,
+    depth: int = DEPTH,
+    use_swiglu: bool = False,
+    model_step: int | None = None,
+    model_tag: str = "",
+) -> None:
+    """
+    Run chat task evaluation for a selected checkpoint source.
+
+    Supported sources:
+        - base
+        - sft
+        - rl
+
+    This wraps scripts.chat_eval and is intentionally separate from stage_sft so
+    training and evaluation can be re-run independently.
+    """
+    _setup_cache()
+
+    assert source in {"base", "sft", "rl"}, f"Unsupported eval source: {source}"
+    print(f"Evaluating {source} checkpoint on chat benchmarks...")
+
+    eval_args = [f"--source={source}"]
+    if model_step is not None:
+        eval_args.append(f"--step={model_step}")
+
+    resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
+    if resolved_model_tag:
+        eval_args.append(f"--model-tag={resolved_model_tag}")
+
+    _torchrun("scripts.chat_eval", eval_args, nproc=_N_FINETUNE_GPUS)
+
+    volume.commit()
+    print(f"{source} eval complete.")
+
+
+@app.function(
+    image=image,
+    secrets=[secret],
+    volumes={VOLUME_MOUNT: volume},
+    gpu=GPU_FINETUNE,
+    timeout=FINETUNE_TIMEOUT_SEC,
+)
 def stage_sft(
     wandb_run: str = WANDB_RUN,
     depth: int = DEPTH,
     use_swiglu: bool = False,
-    n_kv_head: int | None = None,
-    n_kv_head_ratio: int = 1,
     model_step: int | None = None,
     model_tag: str = "",
+    output_tag: str = "",
 ) -> None:
     """
     Supervised fine-tuning: teach the model to follow chat instructions.
@@ -520,7 +552,6 @@ def stage_sft(
     speedrun.sh:
         curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl $IDENTITY_URL
         torchrun ... -m scripts.chat_sft -- --run=$WANDB_RUN
-        torchrun ... -m scripts.chat_eval -- -i sft
 
     chat_sft trains on a curated mixture of conversation data with loss masked
     to assistant-only tokens. This is the key structural difference from
@@ -541,8 +572,7 @@ def stage_sft(
     creator, and basic facts about itself. See dev/gen_synthetic_data.py for how
     to generate your own custom version.
 
-    chat_eval -i sft runs task-specific evals (GSM8K accuracy, HumanEval pass@1,
-    MMLU accuracy) on the SFT checkpoint and appends results to the report.
+    Use stage_eval(source="sft", ...) to evaluate the resulting SFT checkpoint.
     """
     _setup_cache()
 
@@ -552,16 +582,13 @@ def stage_sft(
     _curl(IDENTITY_JSONL_URL, identity_dest)
 
     # speedrun.sh: torchrun ... -m scripts.chat_sft -- --run=$WANDB_RUN
-    # print("Running SFT...")
-    resolved_model_tag = model_tag or _base_model_tag(
-        depth,
-        use_swiglu,
-        n_kv_head=n_kv_head,
-        n_kv_head_ratio=n_kv_head_ratio,
-    )
+    print("Running SFT...")
+    resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
+    resolved_output_tag = output_tag or model_tag
     sft_args = [
         f"--run={wandb_run}",
         f"--model-tag={resolved_model_tag}",
+        f"--output-tag={resolved_output_tag}",
         "--load-optimizer=0",
     ]
     if model_step is not None:
@@ -569,19 +596,6 @@ def stage_sft(
     _torchrun(
         "scripts.chat_sft",
         sft_args,
-        nproc=_N_FINETUNE_GPUS,
-    )
-
-    # speedrun.sh: torchrun ... -m scripts.chat_eval -- -i sft
-    # -i sft tells chat_eval to load the SFT checkpoint (not base or rl)
-    print("Evaluating SFT checkpoint on task benchmarks...")
-    _torchrun(
-        "scripts.chat_eval",
-        [
-            "-i",
-            "sft",
-            f"--model-tag={resolved_model_tag}",
-        ],
         nproc=_N_FINETUNE_GPUS,
     )
 
@@ -605,18 +619,16 @@ def stage_rl(
     wandb_run: str = WANDB_RUN,
     depth: int = DEPTH,
     use_swiglu: bool = False,
-    n_kv_head: int | None = None,
-    n_kv_head_ratio: int = 1,
     model_step: int | None = None,
     model_tag: str = "",
-    reward_type: str = "binary"
+    reward_type: str = "binary",
+    output_tag: str = ""
 ) -> None:
     """
     Optional RL stage to boost math reasoning on GSM8K.
 
     speedrun.sh:
         torchrun ... -m scripts.chat_rl -- --run=$WANDB_RUN
-        torchrun ... -m scripts.chat_eval -- -i rl
 
     Uses a simplified GRPO/REINFORCE variant trained on GSM8K math word
     problems. The model generates multiple candidate answers, checks each
@@ -636,18 +648,14 @@ def stage_rl(
 
     print("Running RL (GRPO on GSM8K)...")
     # speedrun.sh: torchrun ... -m scripts.chat_rl -- --run=$WANDB_RUN
-    resolved_model_tag = model_tag or _base_model_tag(
-        depth,
-        use_swiglu,
-        n_kv_head=n_kv_head,
-        n_kv_head_ratio=n_kv_head_ratio,
-    )
+    resolved_model_tag = model_tag or _base_model_tag(depth, use_swiglu)
+    resolved_output_tag = output_tag or model_tag
     rl_args = [
         f"--run={wandb_run}",
         f"--model-tag={resolved_model_tag}",
-        f"--reward-type={reward_type}"
+        f"--reward-type={reward_type}",
+        f"--output-tag={resolved_output_tag}"
     ]
-    print(f"RL Reward Type: {reward_type}")
     if model_step is not None:
         rl_args.append(f"--model-step={model_step}")
     _torchrun(
@@ -656,74 +664,8 @@ def stage_rl(
         nproc=_N_FINETUNE_GPUS,
     )
 
-    # speedrun.sh: torchrun ... -m scripts.chat_eval -- -i rl
-    print("Evaluating RL checkpoint...")
-    _torchrun(
-        "scripts.chat_eval",
-        ["-i", "rl", f"--model-tag={resolved_model_tag}"],
-        nproc=_N_FINETUNE_GPUS,
-    )
-
     volume.commit()
     print("RL complete.")
-
-
-# =============================================================================
-# STAGE 6: ONE-SHOT CHAT (inference)
-# =============================================================================
-
-
-@app.function(
-    image=image,
-    secrets=[secret],
-    volumes={VOLUME_MOUNT: volume},
-    gpu="H100:1",
-    timeout=60 * 20,
-)
-def stage_chat(
-    prompt: str,
-    source: str = "sft",
-    temperature: float = 0.6,
-    top_k: int = 50,
-    depth: int = DEPTH,
-    use_swiglu: bool = False,
-    n_kv_head: int | None = None,
-    n_kv_head_ratio: int = 1,
-    model_step: int | None = None,
-    model_tag: str = "",
-) -> None:
-    """
-    One-shot chat inference against an existing chat checkpoint.
-
-    Example:
-        modal run nanochat_modal.py::stage_chat --prompt "Hello, who are you?"
-    """
-    _setup_cache()
-
-    if source not in {"sft", "rl"}:
-        raise ValueError("source must be one of: sft, rl")
-
-    resolved_model_tag = model_tag or _base_model_tag(
-        depth,
-        use_swiglu,
-        n_kv_head=n_kv_head,
-        n_kv_head_ratio=n_kv_head_ratio,
-    )
-    chat_args = [
-        f"-i {source}",
-        f"-g {resolved_model_tag}",
-        f"-t {temperature}",
-        f"-k {top_k}",
-        f"-p {shlex.quote(prompt)}",
-    ]
-    if model_step is not None:
-        chat_args.append(f"-s {model_step}")
-
-    print(
-        f"Running one-shot chat: source={source} model_tag={resolved_model_tag} "
-        f"step={model_step}"
-    )
-    _python("scripts.chat_cli", chat_args)
 
 
 # =============================================================================
@@ -752,8 +694,9 @@ def main(
         1. Train BPE tokenizer               (1 GPU, ~2 min)
         2. Pretrain base model               (8 GPU, ~3 hours for d24)
         3. Post-pretrain eval (loss + CORE)  (8 GPU, ~30 min)
-        4. SFT + chat_eval                   (4 GPU, ~30-45 min)
-        5. Chat sample                       (1 GPU, ~1 min)
+        4. SFT                               (4 GPU, ~30-45 min)
+        5. Chat eval                         (4 GPU, ~5-10 min)
+        6. Chat sample                       (1 GPU, ~1 min)
 
     Each stage is a separate Modal function call with its own container, GPU
     allocation, and log stream. If a stage fails, re-run it individually:
@@ -772,25 +715,24 @@ def main(
         f"n_kv_head={n_kv_head}  n_kv_head_ratio={n_kv_head_ratio}  wandb={wandb_run}"
     )
     print(
-        f"  arch={'swiglu' if use_swiglu else 'relu2'}  "
-        f"model_tag={_base_model_tag(depth, use_swiglu, n_kv_head=n_kv_head, n_kv_head_ratio=n_kv_head_ratio)}"
+        f"  arch={'swiglu' if use_swiglu else 'relu2'}  model_tag={_base_model_tag(depth, use_swiglu)}"
     )
     print("=" * w + "\n")
 
     # Stage 0: Data
     # speedrun.sh: python -m nanochat.dataset -n 240
-    print("[0/5] Downloading FineWeb-EDU shards...")
+    print("[0/6] Downloading FineWeb-EDU shards...")
     stage_data.remote(num_shards=num_shards)
 
     # Stage 1: Tokenizer
     # speedrun.sh: python -m scripts.tok_train && python -m scripts.tok_eval
-    print("[1/5] Training tokenizer...")
+    print("[1/6] Training tokenizer...")
     stage_tokenizer.remote()
 
     # Stage 2: Pretrain
     # speedrun.sh: python -m nanochat.report reset
     #              torchrun ... -m scripts.base_train -- --depth=24 ...
-    print("[2/5] Pretraining base model (the long one)...")
+    print("[2/6] Pretraining base model (the long one)...")
     stage_pretrain.remote(
         depth=depth,
         device_batch_size=device_batch_size,
@@ -802,20 +744,27 @@ def main(
 
     # Stage 3: Post-pretrain eval
     #              torchrun ... -m scripts.base_eval
-    print("[3/5] Evaluating base model (bits-per-byte + CORE)...")
+    print("[3/6] Evaluating base model (bits-per-byte + CORE)...")
     stage_post_pretrain_eval.remote()
 
-    # Stage 4: SFT + eval
+    # Stage 4: SFT
     # speedrun.sh: curl identity_conversations.jsonl
     #              torchrun ... -m scripts.chat_sft -- --run=...
-    #              torchrun ... -m scripts.chat_eval -- -i sft
-    print("[4/5] Supervised fine-tuning + eval...")
+    print("[4/6] Supervised fine-tuning...")
     stage_sft.remote(
         wandb_run=wandb_run,
         depth=depth,
         use_swiglu=use_swiglu,
-        n_kv_head=n_kv_head,
-        n_kv_head_ratio=n_kv_head_ratio,
+        model_step=sft_model_step,
+    )
+
+    # Stage 5: chat_eval on the SFT checkpoint
+    print("[5/6] Evaluating SFT checkpoint on chat benchmarks...")
+    stage_eval.remote(
+        source="sft",
+        wandb_run=wandb_run,
+        depth=depth,
+        use_swiglu=use_swiglu,
         model_step=sft_model_step,
     )
 
