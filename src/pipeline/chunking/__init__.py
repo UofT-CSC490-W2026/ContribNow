@@ -6,6 +6,7 @@ from src.pipeline.chunking.interfaces import (
     FileChunkRequest,
     LanguageRegistry,
 )
+from src.pipeline.chunking.registry import DefaultLanguageRegistry
 from src.pipeline.chunking.strategies import NaiveChunkingStrategy
 
 __all__ = [
@@ -13,6 +14,7 @@ __all__ = [
     "ChunkingConfig",
     "ChunkingResult",
     "ChunkingStrategy",
+    "DefaultLanguageRegistry",
     "FileChunkRequest",
     "LanguageRegistry",
     "NaiveChunkingStrategy",
