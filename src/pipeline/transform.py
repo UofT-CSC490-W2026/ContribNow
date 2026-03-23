@@ -372,15 +372,19 @@ def _detect_conventions(files: list[str], repo_checkout: Path) -> dict[str, obje
 def _compute_dependency_graph(files: list[str], repo_checkout: Path) -> dict[str, object]:
     """
     Build an import/export dependency graph for source files.
-    Delegates to ast_imports for AST-based extraction; falls back to a no-op
-    empty graph if the ast extra is not installed.
+
+    Delegates to ast_imports.build_dependency_graph(), which uses tree-sitter
+    AST parsing when available and falls back to regex extraction otherwise.
+    Returns an empty graph only if ast_imports itself cannot be imported
+    (e.g. the module or its ast_utils dependency is missing from the
+    installation).
     """
     try:
         from src.pipeline import ast_imports  # optional dependency
 
         return ast_imports.build_dependency_graph(files, repo_checkout)
     except ImportError:
-        return {"imports_map": {}, "imported_by": {}, "note": "ast extra not installed"}
+        return {"imports_map": {}, "imported_by": {}, "note": "dependency graph omitted: src.pipeline.ast_imports module not available"}
 
 
 def transform_repo(raw_repo_dir: Path, transform_root: Path, top_n_hotspots: int = 20) -> Path:
