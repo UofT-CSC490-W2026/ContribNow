@@ -57,10 +57,7 @@ class TestTSPyChunking(unittest.TestCase):
         )
         parser = _FakeParser(root)
 
-        with patch(
-            "src.pipeline.chunking.ts_py_strategy._build_ts_py_parser",
-            return_value=parser,
-        ):
+        with patch.object(TSPyChunkingStrategy, "_build_parser", return_value=parser):
             strategy = TSPyChunkingStrategy()
         request = FileChunkRequest(
             repo_slug="repo", file_path="pkg/mod.py", content=content.encode("utf-8")
@@ -87,8 +84,9 @@ class TestTSPyChunking(unittest.TestCase):
             content=b"def f():\n    return 1\n",
         )
 
-        with patch(
-            "src.pipeline.chunking.ts_py_strategy._build_ts_py_parser",
+        with patch.object(
+            TSPyChunkingStrategy,
+            "_build_parser",
             side_effect=RuntimeError("parser unavailable"),
         ):
             with self.assertRaises(RuntimeError):
@@ -103,10 +101,7 @@ class TestTSPyChunking(unittest.TestCase):
 
     def test_rejects_non_python_language(self) -> None:
         parser = _FakeParser(_FakeNode(type="module", start_byte=0, end_byte=1))
-        with patch(
-            "src.pipeline.chunking.ts_py_strategy._build_ts_py_parser",
-            return_value=parser,
-        ):
+        with patch.object(TSPyChunkingStrategy, "_build_parser", return_value=parser):
             strategy = TSPyChunkingStrategy()
         request = FileChunkRequest(
             repo_slug="repo",

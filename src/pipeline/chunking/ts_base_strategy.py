@@ -10,11 +10,11 @@ if TYPE_CHECKING:
     from tree_sitter import Node, Parser, Tree
 
 
-class _BaseTSCodeChunkingStrategy:
+class BaseTSChunkingStrategy:
     """
-    Shared Tree-sitter code chunking flow.
+    Shared Tree-sitter chunking flow.
 
-    Subclasses specialize semantic-node selection for one language.
+    Subclasses specialize semantic-node collection for one language.
     """
 
     language_id: str = ""
@@ -105,57 +105,8 @@ class _BaseTSCodeChunkingStrategy:
         raise NotImplementedError
 
 
-class TSJavaScriptChunkingStrategy(_BaseTSCodeChunkingStrategy):
-    language_id = "javascript"
-    strategy_id = "ts_javascript"
-    grammar_module = "tree_sitter_javascript"
-
-    def _collect_semantic_nodes(self, root: "Node") -> list["Node"]:
-        return _collect_nodes_by_type(
-            root,
-            {
-                "function_declaration",
-                "class_declaration",
-                "method_definition",
-            },
-        )
-
-
-class TSJSXChunkingStrategy(_BaseTSCodeChunkingStrategy):
-    language_id = "jsx"
-    strategy_id = "ts_jsx"
-    grammar_module = "tree_sitter_javascript"
-
-    def _collect_semantic_nodes(self, root: "Node") -> list["Node"]:
-        return _collect_nodes_by_type(
-            root,
-            {
-                "function_declaration",
-                "class_declaration",
-                "method_definition",
-            },
-        )
-
-
-class TSJavaChunkingStrategy(_BaseTSCodeChunkingStrategy):
-    language_id = "java"
-    strategy_id = "ts_java"
-    grammar_module = "tree_sitter_java"
-
-    def _collect_semantic_nodes(self, root: "Node") -> list["Node"]:
-        return _collect_nodes_by_type(
-            root,
-            {
-                "class_declaration",
-                "interface_declaration",
-                "enum_declaration",
-                "method_declaration",
-                "constructor_declaration",
-            },
-        )
-
-
-def _collect_nodes_by_type(root: "Node", wanted_types: set[str]) -> list["Node"]:
+def collect_nodes_by_type(root: "Node", wanted_types: set[str]) -> list["Node"]:
+    # Keep stable ordering so chunk boundaries are deterministic.
     nodes = [node for node in root.children if node.type in wanted_types]
     nodes.sort(key=lambda node: (node.start_byte, node.end_byte))
     return nodes
