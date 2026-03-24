@@ -296,33 +296,6 @@ class TestPipelineETL(unittest.TestCase):
                 f"Expected src.utils in app.py imports. Got: {app_imports}",
             )
 
-    def test_commit_details_written_locally(self) -> None:
-        """commit_details.json must exist in the transform dir but NOT in the output dir."""
-        with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
-            source_repo = base / "source-repo"
-            source_repo.mkdir(parents=True, exist_ok=True)
-            _create_git_repo(source_repo)
-
-            raw_root = base / "raw"
-            transformed_root = base / "transform"
-            output_root = base / "output"
-            ingested = ingest_repos([source_repo.resolve().as_uri()], raw_root=raw_root)
-            transform_path = transform_repo(ingested[0], transformed_root)
-            slug = json.loads(transform_path.read_text())["repo_slug"]
-
-            commit_details_path = transformed_root / slug / "commit_details.json"
-            self.assertTrue(commit_details_path.exists(), "commit_details.json must exist in transform dir")
-
-            commit_details = json.loads(commit_details_path.read_text(encoding="utf-8"))
-            self.assertIsInstance(commit_details, list)
-            self.assertGreater(len(commit_details), 0)
-
-            # Must NOT be copied to the output gold artifact
-            load_artifact(transform_path, output_root)
-            snapshot = json.loads((output_root / slug / "onboarding_snapshot.json").read_text(encoding="utf-8"))
-            self.assertNotIn("commit_log", snapshot)
-
     def test_ingest_failure_isolation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

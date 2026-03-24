@@ -2,15 +2,13 @@
 AST-based import/export extraction for building a dependency graph.
 
 Supports Python, JavaScript/TypeScript, and Java via tree-sitter grammars.
-Falls back to lightweight regex extraction for unsupported languages or when
-tree-sitter is not installed.
+Returns empty results when tree-sitter is not installed.
 
 Public entry point used by transform.py:
     build_dependency_graph(files, repo_checkout) -> {imports_map, imported_by}
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from src.pipeline.ast_utils import language_for_file, parse_file
@@ -78,7 +76,7 @@ def _extract_js_imports_ast(tree: object, source: bytes) -> list[str]:
         if node_type == "import_statement":
             # import X from 'module'  /  import 'module'
             for child in children:
-                if child.type in ("string", "string_fragment"):  # type: ignore[attr-defined]
+                if child.type == "string":  # type: ignore[attr-defined]
                     raw = source[child.start_byte:child.end_byte].decode("utf-8", errors="replace")  # type: ignore[attr-defined]
                     imports.append(raw.strip("'\""))
         elif node_type == "call_expression":
@@ -122,36 +120,6 @@ def _extract_java_imports_ast(tree: object, source: bytes) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Regex fallback extractors (no tree-sitter required)
-# ---------------------------------------------------------------------------
-
-_PY_IMPORT_RE = re.compile(
-    r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.,\s]+))",
-    re.MULTILINE,
-)
-_JS_IMPORT_RE = re.compile(
-    r"""(?:import\s+.*?from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))""",
-    re.MULTILINE,
-)
-_JAVA_IMPORT_RE = re.compile(r"^\s*import\s+([\w.]+(?:\.\*)?)\s*;", re.MULTILINE)
-
-
-def _extract_imports_regex(file_path: Path, language: str) -> list[str]:
-    try:
-        text = file_path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
-
-    if language == "python":
-        return [m.group(1) or m.group(2).strip() for m in _PY_IMPORT_RE.finditer(text)]
-    if language in ("javascript", "typescript"):
-        return [m.group(1) or m.group(2) for m in _JS_IMPORT_RE.finditer(text)]
-    if language == "java":
-        return [m.group(1) for m in _JAVA_IMPORT_RE.finditer(text)]
-    return []
-
-
-# ---------------------------------------------------------------------------
 # Per-file extraction dispatcher
 # ---------------------------------------------------------------------------
 
@@ -159,8 +127,8 @@ def extract_imports(file_path: str | Path) -> list[str]:
     """
     Return a list of imported module/path names for *file_path*.
 
-    Tries AST-based extraction first; falls back to regex if tree-sitter is
-    unavailable or parsing fails.
+    Uses AST-based extraction via tree-sitter. Returns [] if tree-sitter
+    is unavailable, parsing fails, or the language is unsupported.
     """
     fp = Path(file_path)
     language = language_for_file(fp)
@@ -174,22 +142,22 @@ def extract_imports(file_path: str | Path) -> list[str]:
     if size > _MAX_FILE_SIZE:
         return []
 
-    # Try AST
     tree = parse_file(fp, language)
-    if tree is not None:
-        try:
-            source = fp.read_bytes()
-            if language == "python":
-                return _extract_python_imports_ast(tree, source)
-            if language in ("javascript", "typescript"):
-                return _extract_js_imports_ast(tree, source)
-            if language == "java":
-                return _extract_java_imports_ast(tree, source)
-        except Exception:
-            pass  # fall through to regex
+    if tree is None:
+        return []
 
-    # Regex fallback
-    return _extract_imports_regex(fp, language)
+    try:
+        source = fp.read_bytes()
+        if language == "python":
+            return _extract_python_imports_ast(tree, source)
+        if language in ("javascript", "typescript"):
+            return _extract_js_imports_ast(tree, source)
+        if language == "java":
+            return _extract_java_imports_ast(tree, source)
+    except Exception:
+        pass
+
+    return []
 
 
 # ---------------------------------------------------------------------------

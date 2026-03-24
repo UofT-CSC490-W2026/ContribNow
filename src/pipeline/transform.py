@@ -70,52 +70,13 @@ def _find_start_here_candidates(files: list[str]) -> list[dict[str, object]]:
         for pattern, reason, points in patterns:
             if pattern.search(norm):
                 reasons.append(reason)
-                score = max(score, points)
+                score += points
         if reasons:
             scored.append((score, norm, sorted(set(reasons))))
 
     scored.sort(key=lambda item: (-item[0], item[1]))
     return [{"path": path, "score": score, "reasons": reasons} for score, path, reasons in scored[:15]]
 
-
-def _parse_commit_file_data(repo_checkout: Path) -> tuple[list[dict[str, object]], int]:
-    """
-    Single git log pass that collects per-commit metadata and the list of
-    files changed in each commit.
-
-    Returns (commits, commits_analyzed) where each commit is:
-        {sha, date, author, files: list[str]}
-    """
-    output = _run_git(
-        ["log", "--date=iso-strict", "--name-only",
-         "--pretty=format:__COMMIT__%x1f%H%x1f%cI%x1f%aN"],
-        cwd=repo_checkout,
-    )
-
-    commits: list[dict[str, object]] = []
-    current: dict[str, object] | None = None
-
-    for raw_line in output.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if line.startswith("__COMMIT__\x1f"):
-            if current is not None:
-                commits.append(current)
-            parts = line.split("\x1f", 3)
-            current = {
-                "sha": parts[1].strip() if len(parts) > 1 else "",
-                "date": parts[2].strip() if len(parts) > 2 else "",
-                "author": parts[3].strip() if len(parts) > 3 else "",
-                "files": [],
-            }
-        elif current is not None:
-            current["files"].append(line.replace("\\", "/"))  # type: ignore[union-attr]
-
-    if current is not None:
-        commits.append(current)
-
-    return commits, len(commits)
 
 
 def _compute_hotspots_from_commits(
@@ -138,16 +99,23 @@ def _compute_hotspots_from_commits(
     ]
 
 
+MAX_FILES_PER_COMMIT = 50
+
+
 def _compute_co_change_matrix(
     commits: list[dict[str, object]], min_threshold: int = 3
 ) -> list[dict[str, object]]:
     """
     Count how many times each file pair is modified in the same commit.
     Only pairs with co_change_count >= min_threshold are returned.
+    Commits touching more than MAX_FILES_PER_COMMIT files are skipped
+    (bulk changes like formatting or dependency bumps are noise).
     """
     pair_counter: Counter[tuple[str, str]] = Counter()
     for commit in commits:
         files = sorted(set(str(f) for f in commit["files"]))  # type: ignore[union-attr]
+        if len(files) > MAX_FILES_PER_COMMIT:
+            continue
         for i, file_a in enumerate(files):
             for file_b in files[i + 1:]:
                 pair_counter[(file_a, file_b)] += 1
@@ -231,7 +199,7 @@ def _compute_risk_levels(
 
     def _norm(vals: list[int]) -> list[float]:
         mn, mx = min(vals), max(vals)
-        return [0.0] * len(vals) if mx == mn else [(v - mn) / (mx - mn) for v in vals]
+        return [0.5] * len(vals) if mx == mn else [(v - mn) / (mx - mn) for v in vals]
 
     n_churn = _norm(churn_vals)
     n_authors = _norm(author_vals)
@@ -283,8 +251,9 @@ def _detect_conventions(files: list[str], repo_checkout: Path) -> dict[str, obje
     if (cfg := _any_match(["pytest.ini"])):
         test_framework = {"name": "pytest", "config_path": cfg}
     elif "pyproject.toml" in file_lower:
-        if "[tool.pytest.ini_options]" in _read("pyproject.toml"):
-            test_framework = {"name": "pytest", "config_path": "pyproject.toml"}
+        pyproject_path = file_lower["pyproject.toml"]
+        if "[tool.pytest.ini_options]" in _read(pyproject_path):
+            test_framework = {"name": "pytest", "config_path": pyproject_path}
     if test_framework is None and (cfg := _any_match(["setup.cfg"])):
         if "[tool:pytest]" in _read(cfg):
             test_framework = {"name": "pytest", "config_path": cfg}
@@ -306,11 +275,12 @@ def _detect_conventions(files: list[str], repo_checkout: Path) -> dict[str, obje
         if (cfg := _any_match(cfg_names)):
             linters.append({"name": linter_name, "config_path": cfg})
     if "pyproject.toml" in file_lower:
-        content = _read("pyproject.toml")
+        pyproject_path = file_lower["pyproject.toml"]
+        content = _read(pyproject_path)
         if "[tool.ruff]" in content and not any(l["name"] == "ruff" for l in linters):
-            linters.append({"name": "ruff", "config_path": "pyproject.toml"})
+            linters.append({"name": "ruff", "config_path": pyproject_path})
         if "[tool.black]" in content:
-            linters.append({"name": "black", "config_path": "pyproject.toml"})
+            linters.append({"name": "black", "config_path": pyproject_path})
 
     # --- CI / CD ---
     ci_pipelines: list[dict[str, object]] = []
@@ -394,9 +364,6 @@ def transform_repo(raw_repo_dir: Path, transform_root: Path, top_n_hotspots: int
     Produces transform.json with:
       structure_summary, hotspots, co_change_pairs, risk_levels,
       authorship, dependency_graph, conventions
-
-    Also writes commit_details.json (local-only, never cloud-synced) containing
-    full commit messages linked to per-file changes.
     """
     raw_repo_dir = Path(raw_repo_dir)
     transform_root = Path(transform_root)
@@ -412,11 +379,18 @@ def transform_repo(raw_repo_dir: Path, transform_root: Path, top_n_hotspots: int
     repo_slug = str(ingest_data.get("repo_slug") or raw_repo_dir.name)
     files: list[str] = list(ingest_data.get("files", []))
 
-    # Single git log pass — feeds hotspots, co-change, authorship
-    try:
-        commits, commits_analyzed = _parse_commit_file_data(repo_checkout)
-    except subprocess.CalledProcessError:
-        commits, commits_analyzed = [], 0
+    # Derive lightweight commit list from ingest's commit_log
+    raw_commit_log = ingest_data.get("commit_log", [])
+    commits: list[dict[str, object]] = [
+        {
+            "sha": entry["sha"],
+            "date": entry["author_date"],
+            "author": entry["author_name"],
+            "files": [f["path"] for f in entry.get("files_changed", [])],
+        }
+        for entry in raw_commit_log
+    ]
+    commits_analyzed = len(commits)
 
     structure_summary = _build_structure_summary(files)
     hotspots = _compute_hotspots_from_commits(commits, top_n=top_n_hotspots)
@@ -428,12 +402,6 @@ def transform_repo(raw_repo_dir: Path, transform_root: Path, top_n_hotspots: int
 
     out_dir = transform_root / repo_slug
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    # Write commit_details.json — local only, contains raw messages; never cloud-synced
-    commit_log = ingest_data.get("commit_log", [])
-    if commit_log:
-        commit_details_path = out_dir / "commit_details.json"
-        commit_details_path.write_text(json.dumps(commit_log, indent=2), encoding="utf-8")
 
     transformed = {
         "repo_slug": repo_slug,

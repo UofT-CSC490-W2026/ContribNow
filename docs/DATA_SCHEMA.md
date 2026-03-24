@@ -294,13 +294,13 @@ Output Layer (data/output_<run_id>/)
 - **imports_map:** Object<filepath: Array<module_names>>
   - Keys: Source file paths (relative to repo root)
   - Values: List of imported module/package names
-  - Sources: Extracted via AST (if tree-sitter available) or regex fallback
+  - Sources: Extracted via AST (requires tree-sitter)
 - **imported_by:** Object<module_name: Array<filepaths>>
   - Keys: Module/package names (can be builtins, thirds-party, or local)
   - Values: List of files that import this module
   - Auto-built from imports_map
 - **Note:** Optional field, may be empty dict if AST unavailable or no imports detected
-- **AST Coverage:** Python (full), JavaScript/TypeScript (full), Java (full), others (regex fallback)
+- **AST Coverage:** Python (full), JavaScript/TypeScript (full), Java (full). Others: not supported (returns empty)
 - **Purpose:** Build code dependency graph for relationship-aware retrieval
 - **RAG Usage:** Given a chunk, retrieve related chunks via dependency_graph; visualize import relationships
 
@@ -433,7 +433,7 @@ These may be missing or empty:
 
 - **hotspots:** Typically 20-100 items
 - **co_change_pairs:** Can be 50–500+ pairs in large repos
-- **authorship:** One entry per source file (same as hotspots count)
+- **authorship:** One entry per file with at least one commit (can be larger than hotspots, which is capped at top_n)
 - **dependency_graph:** Can be large in import-heavy codebases
   - Recommended: Pre-compute imports, cache results
   - Beware: Transitive dependencies not expanded (only direct imports)
@@ -491,7 +491,7 @@ These may be missing or empty:
 
 ---
 
-## 6. Integration Guide for RAG Layer
+## 7. Integration Guide for RAG Layer
 
 ### Recommended Vector Store Schema
 
@@ -545,7 +545,7 @@ Relevant Conventions: [conventions.testing.test_framework, ...]
 
 ---
 
-## 7. Version History
+## 8. Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
@@ -554,10 +554,10 @@ Relevant Conventions: [conventions.testing.test_framework, ...]
 
 ---
 
-## 8. FAQ
+## 9. FAQ
 
 **Q: What if dependency_graph is empty?**  
-A: AST parsing failed or was disabled. Regex fallback may still extract basic imports. Check transform_metadata.schema_version and pipeline logs.
+A: AST parsing failed or tree-sitter is not installed. Install the `[ast]` extra to enable import extraction. Check pipeline logs.
 
 **Q: Can co_change_pairs be empty?**  
 A: Yes, if no file pairs co-occur ≥3 times. This is valid.
@@ -573,7 +573,7 @@ A: Either works. `snapshot.json` has the same data with cleaner field names (ris
 
 ---
 
-## 9. Contact & Updates
+## 10. Contact & Updates
 
 Schema questions? Contact ETL team.  
 Need a new field? File an issue with:
