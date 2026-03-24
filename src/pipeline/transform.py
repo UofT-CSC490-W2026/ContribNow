@@ -62,9 +62,21 @@ def _find_start_here_candidates(files: list[str]) -> list[dict[str, object]]:
         (re.compile(r"(?i)^\.github/workflows/"), "ci_workflow", 68),
     ]
 
+    skip_extensions = {
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg", ".tiff",
+        ".mp4", ".avi", ".mov", ".mkv", ".mp3", ".wav", ".flac", ".ogg",
+        ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
+        ".pyc", ".pyo", ".so", ".dll", ".dylib", ".exe", ".class", ".o", ".a",
+        ".woff", ".woff2", ".ttf", ".otf", ".eot",
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".bin", ".dat", ".db", ".sqlite", ".wasm",
+    }
+
     scored: list[tuple[int, str, list[str]]] = []
     for file_path in files:
         norm = file_path.replace("\\", "/")
+        if Path(norm).suffix.lower() in skip_extensions:
+            continue
         reasons: list[str] = []
         score = 0
         for pattern, reason, points in patterns:
@@ -344,10 +356,8 @@ def _compute_dependency_graph(files: list[str], repo_checkout: Path) -> dict[str
     Build an import/export dependency graph for source files.
 
     Delegates to ast_imports.build_dependency_graph(), which uses tree-sitter
-    AST parsing when available and falls back to regex extraction otherwise.
-    Returns an empty graph only if ast_imports itself cannot be imported
-    (e.g. the module or its ast_utils dependency is missing from the
-    installation).
+    AST parsing. Returns an empty graph if tree-sitter is not installed or
+    ast_imports cannot be imported.
     """
     try:
         from src.pipeline import ast_imports  # optional dependency
