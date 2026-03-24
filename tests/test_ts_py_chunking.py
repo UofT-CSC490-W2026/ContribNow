@@ -58,7 +58,7 @@ class TestTSPyChunking(unittest.TestCase):
         parser = _FakeParser(root)
 
         with patch(
-            "src.pipeline.chunking.strategies._build_ts_py_parser",
+            "src.pipeline.chunking.ts_py_strategy._build_ts_py_parser",
             return_value=parser,
         ):
             strategy = TSPyChunkingStrategy()
@@ -86,7 +86,7 @@ class TestTSPyChunking(unittest.TestCase):
         )
 
         with patch(
-            "src.pipeline.chunking.strategies._build_ts_py_parser",
+            "src.pipeline.chunking.ts_py_strategy._build_ts_py_parser",
             side_effect=RuntimeError("parser unavailable"),
         ):
             with self.assertRaises(RuntimeError):
@@ -102,7 +102,7 @@ class TestTSPyChunking(unittest.TestCase):
     def test_rejects_non_python_language(self) -> None:
         parser = _FakeParser(_FakeNode(type="module", start_byte=0, end_byte=1))
         with patch(
-            "src.pipeline.chunking.strategies._build_ts_py_parser",
+            "src.pipeline.chunking.ts_py_strategy._build_ts_py_parser",
             return_value=parser,
         ):
             strategy = TSPyChunkingStrategy()

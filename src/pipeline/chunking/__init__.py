@@ -11,7 +11,8 @@ from src.pipeline.chunking.registry import (
     get_language_registry,
     reset_language_registry,
 )
-from src.pipeline.chunking.strategies import NaiveChunkingStrategy, TSPyChunkingStrategy
+from src.pipeline.chunking.strategies import NaiveChunkingStrategy
+from src.pipeline.chunking.ts_py_strategy import TSPyChunkingStrategy
 
 __all__ = [
     "Chunk",
