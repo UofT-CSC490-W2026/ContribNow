@@ -47,6 +47,11 @@ def load_artifact(transform_json_path: Path, output_root: Path) -> Path:
         "head_commit": transformed.get("head_commit"),
         "structure_summary": transformed.get("structure_summary", {}),
         "hotspots": transformed.get("hotspots", []),
+        "risk_matrix": transformed.get("risk_levels", {}),
+        "co_change_pairs": transformed.get("co_change_pairs", []),
+        "authorship_summary": transformed.get("authorship", {}),
+        "dependency_graph": transformed.get("dependency_graph", {}),
+        "conventions": transformed.get("conventions", {}),
         "transform_metadata": transformed.get("transform_metadata", {}),
         "load_metadata": {
             "generated_at": timestamp,

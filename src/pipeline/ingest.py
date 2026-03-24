@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -8,6 +9,7 @@ from pathlib import Path
 from src.pipeline.utils import utc_now
 
 COMMIT_LOG_LIMIT = 500
+INGEST_SCHEMA_VERSION = 2
 
 
 def _run_git(args: list[str], cwd: Path | None = None) -> str:
@@ -87,46 +89,143 @@ def _head_commit(repo_dir: Path) -> str | None:
         return None
 
 
-def _list_files(repo_dir: Path) -> list[str]:
+_MAX_HASH_FILE_SIZE = 1 * 1024 * 1024  # skip hashing files larger than 1 MB
+
+_BINARY_EXTENSIONS: set[str] = {
+    # Images
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg", ".tiff",
+    # Video / audio
+    ".mp4", ".avi", ".mov", ".mkv", ".mp3", ".wav", ".flac", ".ogg",
+    # Archives
+    ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
+    # Compiled / binary
+    ".pyc", ".pyo", ".so", ".dll", ".dylib", ".exe", ".class", ".o", ".a",
+    # Fonts
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    # Documents / data
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    # Other
+    ".bin", ".dat", ".db", ".sqlite", ".wasm",
+}
+
+
+def _file_content_hash(file_path: Path, size: int) -> str:
+    """Compute SHA-256 of a file's contents for change detection.
+
+    Returns empty string for binary files (by extension) or files larger
+    than _MAX_HASH_FILE_SIZE — these are not meaningful for pipeline analysis.
+    """
+    if size > _MAX_HASH_FILE_SIZE:
+        return ""
+    if file_path.suffix.lower() in _BINARY_EXTENSIONS:
+        return ""
+    h = hashlib.sha256()
+    try:
+        with file_path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return ""
+
+
+def _list_files(repo_dir: Path) -> tuple[list[str], list[dict[str, object]]]:
+    """
+    Walk the repo and return both a flat path list and per-file metadata.
+
+    Returns:
+        files              — posix-style relative paths (backward-compatible)
+        files_with_hashes  — [{path, content_hash, size_bytes}] for each file
+    """
     files: list[str] = []
-    for path in repo_dir.rglob("*"):
+    files_with_hashes: list[dict[str, object]] = []
+    for path in sorted(repo_dir.rglob("*")):
         if path.is_file() and ".git" not in path.parts:
-            files.append(path.relative_to(repo_dir).as_posix())
-    files.sort()
-    return files
-
-
-def _files_changed_count(repo_dir: Path, sha: str) -> int:
-    out = _run_git(["show", "--pretty=format:", "--name-only", sha], cwd=repo_dir)
-    return len({line.strip() for line in out.splitlines() if line.strip()})
+            rel = path.relative_to(repo_dir).as_posix()
+            files.append(rel)
+            try:
+                size: int = path.stat().st_size
+            except OSError:
+                size = 0
+            files_with_hashes.append(
+                {
+                    "path": rel,
+                    "content_hash": _file_content_hash(path, size),
+                    "size_bytes": size,
+                }
+            )
+    return files, files_with_hashes
 
 
 def _build_commit_log(repo_dir: Path, max_count: int = COMMIT_LOG_LIMIT) -> list[dict[str, object]]:
-    output = _run_git(
-        ["log", f"-n{max_count}", "--date=iso-strict", "--pretty=format:%H%x1f%cI%x1f%B%x1e"],
+    """
+    Build a rich commit log with author info and per-file change stats.
+
+    Uses two git passes joined by SHA to avoid fragile parsing of multi-line
+    commit message bodies:
+      - Pass 1: SHA, date, author name/email, full message body
+      - Pass 2: per-file addition/deletion counts via --numstat
+    """
+    # Pass 1: commit metadata
+    meta_output = _run_git(
+        ["log", f"-n{max_count}", "--date=iso-strict",
+         "--pretty=format:%H%x1f%cI%x1f%aN%x1f%aE%x1f%B%x1e"],
         cwd=repo_dir,
     )
-    records = [chunk for chunk in output.split("\x1e") if chunk.strip()]
-    commit_log: list[dict[str, object]] = []
-
-    for record in records:
-        parts = record.split("\x1f", 2)
-        if len(parts) < 3:
+    sha_order: list[str] = []
+    meta_by_sha: dict[str, dict[str, object]] = {}
+    for record in meta_output.split("\x1e"):
+        record = record.strip()
+        if not record:
+            continue
+        parts = record.split("\x1f", 4)
+        if len(parts) < 5:
             continue
         sha = parts[0].strip()
-        author_date = parts[1].strip()
-        message = parts[2].strip()
         if not sha:
             continue
-        commit_log.append(
-            {
-                "sha": sha,
-                "author_date": author_date,
-                "message": message,
-                "files_changed_count": _files_changed_count(repo_dir, sha),
-            }
-        )
-    return commit_log
+        sha_order.append(sha)
+        meta_by_sha[sha] = {
+            "sha": sha,
+            "author_date": parts[1].strip(),
+            "author_name": parts[2].strip(),
+            "author_email": parts[3].strip(),
+            "message": parts[4].strip(),
+            "files_changed": [],
+        }
+
+    # Pass 2: per-file addition/deletion counts
+    numstat_output = _run_git(
+        ["log", f"-n{max_count}", "--numstat", "--pretty=format:__COMMIT__%H"],
+        cwd=repo_dir,
+    )
+    current_sha: str | None = None
+    for raw_line in numstat_output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("__COMMIT__"):
+            current_sha = line[len("__COMMIT__"):]
+        elif current_sha and "\t" in line:
+            tab_parts = line.split("\t", 2)
+            if len(tab_parts) != 3:
+                continue
+            add_str, del_str, path_str = tab_parts
+            try:
+                additions = int(add_str) if add_str.strip() not in ("", "-") else 0
+                deletions = int(del_str) if del_str.strip() not in ("", "-") else 0
+            except ValueError:
+                continue
+            if current_sha in meta_by_sha:
+                meta_by_sha[current_sha]["files_changed"].append(  # type: ignore[union-attr]
+                    {
+                        "path": path_str.strip().replace("\\", "/"),
+                        "additions": additions,
+                        "deletions": deletions,
+                    }
+                )
+
+    return [meta_by_sha[sha] for sha in sha_order if sha in meta_by_sha]
 
 
 def ingest_repos(
@@ -148,13 +247,16 @@ def ingest_repos(
 
         try:
             _fetch_or_clone(repo_url, repo_checkout_dir, branch=branch, depth=depth)
+            files, files_with_hashes = _list_files(repo_checkout_dir)
             manifest = {
+                "ingest_schema_version": INGEST_SCHEMA_VERSION,
                 "repo_slug": slug,
                 "repo_url": repo_url,
                 "default_branch": _detect_default_branch(repo_checkout_dir),
                 "head_commit": _head_commit(repo_checkout_dir),
                 "generated_at": utc_now(),
-                "files": _list_files(repo_checkout_dir),
+                "files": files,
+                "files_with_hashes": files_with_hashes,
                 "commit_log": _build_commit_log(repo_checkout_dir),
             }
             (raw_repo_dir / "ingest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

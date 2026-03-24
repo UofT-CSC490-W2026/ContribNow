@@ -23,9 +23,35 @@ Run multiple repos:
 ```
 
 The script writes artifacts to:
-- `data/raw_<run_id>`
-- `data/transform_<run_id>`
-- `data/output_<run_id>`
+- `data/raw_<run_id>` — Raw layer (source code, git history)
+- `data/transform_<run_id>` — Transform layer (enriched metadata)
+- `data/output_<run_id>` — Output layer (user-consumable format)
+
+## Pipeline Output & Data Schema
+
+The pipeline produces **enriched metadata** from code repositories:
+
+**transform.json** contains:
+- `hotspots` — Files ranked by change frequency
+- `risk_levels` — Multi-factor risk scoring per file (churn, author diversity, coupling)
+- `co_change_pairs` — Files frequently modified together (threshold ≥3 co-occurrences)
+- `authorship` — Per-file author distribution and primary contributors
+- `dependency_graph` — Import relationships extracted via AST
+- `conventions` — Detected testing frameworks, linters, CI/CD platforms, contribution docs
+
+**onboarding_snapshot.json** provides a clean projection:
+- Same enriched fields as transform.json, renamed for clarity
+- User-friendly format for UI, dashboards, and downstream tools
+- Includes load metadata (generation timestamp, source path)
+
+**For RAG Integration:** The RAG team consumes:
+1. **transform.json / onboarding_snapshot.json** — Metadata (risk scores, dependencies, authorship)
+2. **Raw layer (source files)** — Actual code content for embeddings and citations
+
+**Full Data Reference:** See [docs/DATA_SCHEMA.md](docs/DATA_SCHEMA.md) for:
+- Exact field definitions, types, and constraints
+- Recommended vector store schema
+- Integration guidance for chunking/embedding layer
 
 ## Cloud-Safe Sync (Optional)
 
