@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "ContribNow ETL pipeline"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "tree-sitter>=0.25.0",
+  "tree-sitter-python>=0.23.0",
+]
 
 [project.optional-dependencies]
 cloud = ["psycopg[binary]>=3.2.0"]

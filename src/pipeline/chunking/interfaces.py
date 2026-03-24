@@ -64,6 +64,12 @@ class LanguageRegistry(Protocol):
     def detect(self, file_path: str, content_head: str | None = None) -> str | None:
         """Return a canonical language id for a file, or None if unknown."""
 
+    def register_strategy(self, language: str, strategy: "ChunkingStrategy") -> None:
+        """Register a language-specific chunking strategy."""
+
+    def get_strategy(self, language: str) -> "ChunkingStrategy | None":
+        """Return the language-specific chunking strategy, if any."""
+
 
 class ChunkingStrategy(Protocol):
     @property
