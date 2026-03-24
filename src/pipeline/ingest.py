@@ -89,8 +89,36 @@ def _head_commit(repo_dir: Path) -> str | None:
         return None
 
 
-def _file_content_hash(file_path: Path) -> str:
-    """Compute SHA-256 of a file's contents for change detection."""
+_MAX_HASH_FILE_SIZE = 1 * 1024 * 1024  # skip hashing files larger than 1 MB
+
+_BINARY_EXTENSIONS: set[str] = {
+    # Images
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg", ".tiff",
+    # Video / audio
+    ".mp4", ".avi", ".mov", ".mkv", ".mp3", ".wav", ".flac", ".ogg",
+    # Archives
+    ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
+    # Compiled / binary
+    ".pyc", ".pyo", ".so", ".dll", ".dylib", ".exe", ".class", ".o", ".a",
+    # Fonts
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    # Documents / data
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    # Other
+    ".bin", ".dat", ".db", ".sqlite", ".wasm",
+}
+
+
+def _file_content_hash(file_path: Path, size: int) -> str:
+    """Compute SHA-256 of a file's contents for change detection.
+
+    Returns empty string for binary files (by extension) or files larger
+    than _MAX_HASH_FILE_SIZE — these are not meaningful for pipeline analysis.
+    """
+    if size > _MAX_HASH_FILE_SIZE:
+        return ""
+    if file_path.suffix.lower() in _BINARY_EXTENSIONS:
+        return ""
     h = hashlib.sha256()
     try:
         with file_path.open("rb") as fh:
@@ -122,7 +150,7 @@ def _list_files(repo_dir: Path) -> tuple[list[str], list[dict[str, object]]]:
             files_with_hashes.append(
                 {
                     "path": rel,
-                    "content_hash": _file_content_hash(path),
+                    "content_hash": _file_content_hash(path, size),
                     "size_bytes": size,
                 }
             )
