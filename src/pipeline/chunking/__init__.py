@@ -12,6 +12,11 @@ from src.pipeline.chunking.registry import (
     reset_language_registry,
 )
 from src.pipeline.chunking.strategies import NaiveChunkingStrategy
+from src.pipeline.chunking.ts_code_strategy import (
+    TSJavaChunkingStrategy,
+    TSJavaScriptChunkingStrategy,
+    TSJSXChunkingStrategy,
+)
 from src.pipeline.chunking.ts_py_strategy import TSPyChunkingStrategy
 
 __all__ = [
@@ -25,5 +30,8 @@ __all__ = [
     "LanguageRegistry",
     "NaiveChunkingStrategy",
     "reset_language_registry",
+    "TSJavaChunkingStrategy",
+    "TSJavaScriptChunkingStrategy",
+    "TSJSXChunkingStrategy",
     "TSPyChunkingStrategy",
 ]

@@ -17,7 +17,9 @@ from src.pipeline.chunking import (
     get_language_registry,
     reset_language_registry,
     NaiveChunkingStrategy,
-    TSCodeChunkingStrategy,
+    TSJavaChunkingStrategy,
+    TSJavaScriptChunkingStrategy,
+    TSJSXChunkingStrategy,
     TSPyChunkingStrategy,
 )
 ```
@@ -78,9 +80,15 @@ Important:
 - `TSPyChunkingStrategy`
   - Python-only Tree-sitter chunking
   - semantic boundaries from Python AST node types
-- `TSCodeChunkingStrategy`
-  - Tree-sitter chunking for additional languages
-  - currently supports `javascript`, `jsx`, and `java`
+- `TSJavaScriptChunkingStrategy`
+  - JavaScript Tree-sitter chunking
+  - semantic boundaries from JS definition node types
+- `TSJSXChunkingStrategy`
+  - JSX Tree-sitter chunking (JS grammar)
+  - semantic boundaries from JS definition node types
+- `TSJavaChunkingStrategy`
+  - Java Tree-sitter chunking
+  - semantic boundaries from Java declaration node types
 
 ## Language Registry
 
@@ -102,16 +110,18 @@ from src.pipeline.chunking import (
     ChunkingConfig,
     FileChunkRequest,
     NaiveChunkingStrategy,
-    TSCodeChunkingStrategy,
+    TSJavaChunkingStrategy,
+    TSJavaScriptChunkingStrategy,
+    TSJSXChunkingStrategy,
     TSPyChunkingStrategy,
     get_language_registry,
 )
 
 registry = get_language_registry()
 registry.register_strategy("python", TSPyChunkingStrategy())
-registry.register_strategy("javascript", TSCodeChunkingStrategy("javascript"))
-registry.register_strategy("jsx", TSCodeChunkingStrategy("jsx"))
-registry.register_strategy("java", TSCodeChunkingStrategy("java"))
+registry.register_strategy("javascript", TSJavaScriptChunkingStrategy())
+registry.register_strategy("jsx", TSJSXChunkingStrategy())
+registry.register_strategy("java", TSJavaChunkingStrategy())
 default_strategy = NaiveChunkingStrategy()
 config = ChunkingConfig()
 
