@@ -2,8 +2,8 @@
 
 **Purpose:** This document specifies the exact structure, field definitions, and constraints for all data produced by the pipeline. It serves as a data contract between the ETL pipeline and downstream consumers (RAG layer, analytics, etc.).
 
-**Last Updated:** March 16, 2026  
-**Pipeline Version:** 2.0 (Schema Version: 2)
+**Last Updated:** March 23, 2026
+**Pipeline Version:** 2.1 (Schema Version: 2)
 
 ---
 
@@ -35,7 +35,7 @@ Output Layer (data/output_<run_id>/)
 **Location:** `data/raw_<run_id>/<repo_slug>/`
 
 **Contents:**
-- Full clone of repository at specified depth (default: 500 commits)
+- Full clone of repository (optionally shallow via `--depth`). Commit log capped at 500 entries.
 - All source files with original paths and content
 - Git metadata (logs, diffs)
 
@@ -123,7 +123,7 @@ Output Layer (data/output_<run_id>/)
   - `total_files`: Integer, count of non-ignored files
   - `top_level_directories`: Array of `{path: String, file_count: Integer}`, sorted by file_count descending
   - `file_type_counts`: Array of `{extension: String, count: Integer}`, sorted by count descending
-  - `start_here_candidates`: Array of `{path: String, score: Integer, reasons: Array<String>}`, top 15 files scored by pattern matching against well-known entry points (README, CONTRIBUTING, Dockerfile, etc.), sorted by score descending
+  - `start_here_candidates`: Array of `{path: String, score: Integer, reasons: Array<String>}`, top 15 files scored by cumulative pattern matching against well-known entry points (README, CONTRIBUTING, Dockerfile, etc.). Binary/asset files (images, videos, archives, fonts, etc.) are excluded. Sorted by score descending
 - **Purpose:** High-level repository statistics and onboarding entry points
 - **Constraint:** Extensions are lowercase with leading dot; `"."` root directory is represented as `"."`
 
@@ -351,7 +351,7 @@ Output Layer (data/output_<run_id>/)
 - **Fields:**
   - `generated_at`: ISO 8601 string, when the transform ran (via `utc_now()`)
   - `top_n_hotspots`: Integer, maximum number of hotspots computed
-  - `commits_analyzed`: Integer, total number of commits parsed from git log
+  - `commits_analyzed`: Integer, total number of commits derived from ingest's commit_log
   - `source_ingest_path`: String, filesystem path to the ingest.json used as input
 - **Purpose:** Pipeline operational metadata and provenance
 - **RAG Usage:** Understand pipeline parameters; trace back to source ingest
@@ -431,7 +431,7 @@ These may be missing or empty:
 
 ### Performance Considerations
 
-- **hotspots:** Typically 20-100 items
+- **hotspots:** Capped at `top_n_hotspots` (default: 20)
 - **co_change_pairs:** Can be 50–500+ pairs in large repos
 - **authorship:** One entry per file with at least one commit (can be larger than hotspots, which is capped at top_n)
 - **dependency_graph:** Can be large in import-heavy codebases
@@ -453,7 +453,7 @@ These may be missing or empty:
 - Version control: Would be unwieldy to track code changes in JSON
 
 **Where code lives:**
-- Raw layer: `data/raw_<run_id>/<repo_slug>/` → actual source files with original paths
+- Raw layer: `data/raw_<run_id>/<repo_slug>/repo/` → actual source files with original paths (the slug directory also contains `ingest.json`)
 - Transform.json: Metadata ONLY (hotspots, risk, authorship, dependency_graph)
 - Output snapshot: Metadata projection for user interface
 
@@ -549,6 +549,7 @@ Relevant Conventions: [conventions.testing.test_framework, ...]
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.1 | 2026-03-23 | Fixed: risk normalization for equal values, co-change cap (50 files/commit), convention detection paths, start-here cumulative scoring + binary file filter, removed regex fallback from AST imports, transform derives commits from ingest (no redundant git log) |
 | 2.0 | 2026-03-16 | Added risk_levels, co_change_pairs, authorship, dependency_graph, conventions; snapshot.json enrichment |
 | 1.0 | 2026-01-XX | Initial release: structure, hotspots only |
 
@@ -565,8 +566,8 @@ A: Yes, if no file pairs co-occur ≥3 times. This is valid.
 **Q: Are file paths absolute or relative?**  
 A: Always relative to repo root, with forward slashes (/).
 
-**Q: What if authorship has an author with no email?**  
-A: Git logs are trusted as-is. Malformed authors may appear as-is.
+**Q: What if authorship has an author with no name?**
+A: Git logs are trusted as-is. Malformed author names may appear as-is. Note: authorship only includes `name` and `commit_count` per contributor — email is not included in the output.
 
 **Q: Should RAG team use transform.json or snapshot.json?**  
 A: Either works. `snapshot.json` has the same data with cleaner field names (risk_matrix vs risk_levels, authorship_summary vs authorship). Choice is stylistic.
