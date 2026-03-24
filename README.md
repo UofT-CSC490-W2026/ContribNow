@@ -36,7 +36,7 @@ The pipeline produces **enriched metadata** from code repositories:
 - `risk_levels` — Multi-factor risk scoring per file (churn, author diversity, coupling)
 - `co_change_pairs` — Files frequently modified together (threshold ≥3 co-occurrences)
 - `authorship` — Per-file author distribution and primary contributors
-- `dependency_graph` — Import relationships extracted via AST with regex fallback
+- `dependency_graph` — Import relationships extracted via AST
 - `conventions` — Detected testing frameworks, linters, CI/CD platforms, contribution docs
 
 **onboarding_snapshot.json** provides a clean projection:
