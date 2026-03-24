@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import bisect
 from typing import TYPE_CHECKING
 
 from src.pipeline.chunking.interfaces import Chunk, ChunkingConfig, FileChunkRequest
@@ -31,8 +30,7 @@ class TSPyChunkingStrategy:
         if language != "python":
             raise ValueError("TSPyChunkingStrategy only supports language='python'")
 
-        source_text = request.content
-        source_bytes = source_text.encode("utf-8", errors="replace")
+        source_bytes = request.content
         total_bytes = len(source_bytes)
         if total_bytes == 0:
             return []
@@ -44,47 +42,47 @@ class TSPyChunkingStrategy:
         if not semantic_spans:
             semantic_spans = [(0, total_bytes)]
 
-        char_to_byte = _build_char_to_byte_offsets(source_text)
-        newline_offsets = [idx for idx, char in enumerate(source_text) if char == "\n"]
+        newline_offsets = [
+            idx for idx, byte in enumerate(source_bytes) if byte == b"\n"[0]
+        ]
         chunks: list[Chunk] = []
 
         for start_byte, end_byte in semantic_spans:
-            span_start_char = _byte_to_char_offset(char_to_byte, start_byte)
-            span_end_char = _byte_to_char_offset(char_to_byte, end_byte)
-            if span_end_char <= span_start_char:
+            if end_byte <= start_byte:
                 continue
-            if not source_text[span_start_char:span_end_char].strip():
+            if not source_bytes[start_byte:end_byte].strip():
                 continue
 
-            for start_char, end_char in _split_char_span(
-                source_text,
-                start=span_start_char,
-                end=span_end_char,
+            for chunk_start_byte, chunk_end_byte in _split_byte_span(
+                source_bytes,
+                start=start_byte,
+                end=end_byte,
                 config=config,
             ):
-                chunk_text = source_text[start_char:end_char]
-                if not chunk_text:
+                chunk_content = source_bytes[chunk_start_byte:chunk_end_byte]
+                if not chunk_content:
                     continue
+                chunk_id = _build_chunk_id(
+                    request.repo_slug,
+                    request.file_path,
+                    chunk_start_byte,
+                    chunk_end_byte,
+                    chunk_content,
+                )
                 chunks.append(
                     Chunk(
-                        chunk_id=_build_chunk_id(
-                            request.repo_slug,
-                            request.file_path,
-                            start_char,
-                            end_char,
-                            chunk_text,
-                        ),
+                        chunk_id=chunk_id,
                         repo_slug=request.repo_slug,
                         file_path=request.file_path,
                         language=language,
                         strategy=self.name,
-                        start_offset=start_char,
-                        end_offset=end_char,
-                        start_line=_offset_to_line(newline_offsets, start_char),
+                        start_byte=chunk_start_byte,
+                        end_byte=chunk_end_byte,
+                        start_line=_offset_to_line(newline_offsets, chunk_start_byte),
                         end_line=_offset_to_line(
-                            newline_offsets, max(start_char, end_char - 1)
+                            newline_offsets, max(chunk_start_byte, chunk_end_byte - 1)
                         ),
-                        text=chunk_text,
+                        content=chunk_content,
                     )
                 )
 
@@ -92,6 +90,7 @@ class TSPyChunkingStrategy:
 
 
 def _build_ts_py_parser() -> "Parser":
+    """Build a Python Tree-sitter parser configured with the python grammar."""
     import tree_sitter_python
     from tree_sitter import Language, Parser
 
@@ -100,6 +99,7 @@ def _build_ts_py_parser() -> "Parser":
 
 
 def _collect_python_semantic_nodes(root: "Node") -> list["Node"]:
+    """Collect top-level semantic Python definition nodes in source order."""
     wanted_types = {
         "function_definition",
         "class_definition",
@@ -114,6 +114,7 @@ def _collect_python_semantic_nodes(root: "Node") -> list["Node"]:
 def _semantic_spans_with_gaps(
     nodes: list["Node"], total_bytes: int
 ) -> list[tuple[int, int]]:
+    """Return byte spans for semantic nodes plus inter-node gaps."""
     spans: list[tuple[int, int]] = []
     cursor = 0
 
@@ -132,40 +133,23 @@ def _semantic_spans_with_gaps(
     return spans
 
 
-def _build_char_to_byte_offsets(text: str) -> list[int]:
-    offsets = [0]
-    total = 0
-    for char in text:
-        total += len(char.encode("utf-8", errors="replace"))
-        offsets.append(total)
-    return offsets
-
-
-def _byte_to_char_offset(char_to_byte: list[int], byte_offset: int) -> int:
-    if byte_offset <= 0:
-        return 0
-    last = char_to_byte[-1]
-    if byte_offset >= last:
-        return len(char_to_byte) - 1
-    return bisect.bisect_left(char_to_byte, byte_offset)
-
-
-def _split_char_span(
-    text: str,
+def _split_byte_span(
+    source: bytes,
     start: int,
     end: int,
     config: ChunkingConfig,
 ) -> list[tuple[int, int]]:
+    """Split one byte span into overlap-aware chunk windows."""
     spans: list[tuple[int, int]] = []
     current = start
 
     while current < end:
-        limit = min(current + config.max_chars, end)
+        limit = min(current + config.max_bytes, end)
         split = limit
 
         if limit < end:
-            floor = min(current + config.min_split_chars, limit)
-            split_at = text.rfind("\n", floor, limit)
+            floor = min(current + config.min_split_bytes, limit)
+            split_at = source.rfind(b"\n", floor, limit)
             if split_at != -1 and split_at + 1 > current:
                 split = split_at + 1
 
@@ -178,6 +162,6 @@ def _split_char_span(
         if split >= end:
             break
 
-        current = max(split - config.overlap_chars, current + 1)
+        current = max(split - config.overlap_bytes, current + 1)
 
     return spans

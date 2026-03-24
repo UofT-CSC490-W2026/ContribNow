@@ -63,18 +63,20 @@ class TestTSPyChunking(unittest.TestCase):
         ):
             strategy = TSPyChunkingStrategy()
         request = FileChunkRequest(
-            repo_slug="repo", file_path="pkg/mod.py", content=content
+            repo_slug="repo", file_path="pkg/mod.py", content=content.encode("utf-8")
         )
 
         chunks = strategy.chunk(
             request=request,
             language="python",
-            config=ChunkingConfig(max_chars=120, overlap_chars=20, min_split_chars=40),
+            config=ChunkingConfig(max_bytes=120, overlap_bytes=20, min_split_bytes=40),
         )
 
         self.assertGreaterEqual(len(chunks), 2)
         self.assertTrue(all(chunk.strategy == "ts_py" for chunk in chunks))
-        joined = "\n".join(chunk.text for chunk in chunks)
+        joined = b"\n".join(chunk.content for chunk in chunks).decode(
+            "utf-8", errors="replace"
+        )
         self.assertIn("def util", joined)
         self.assertIn("class Foo", joined)
 
@@ -82,7 +84,7 @@ class TestTSPyChunking(unittest.TestCase):
         request = FileChunkRequest(
             repo_slug="repo",
             file_path="pkg/mod.py",
-            content="def f():\n    return 1\n",
+            content=b"def f():\n    return 1\n",
         )
 
         with patch(
@@ -95,7 +97,7 @@ class TestTSPyChunking(unittest.TestCase):
                     request=request,
                     language="python",
                     config=ChunkingConfig(
-                        max_chars=80, overlap_chars=10, min_split_chars=20
+                        max_bytes=80, overlap_bytes=10, min_split_bytes=20
                     ),
                 )
 
@@ -109,7 +111,7 @@ class TestTSPyChunking(unittest.TestCase):
         request = FileChunkRequest(
             repo_slug="repo",
             file_path="pkg/mod.js",
-            content="console.log('x')\n",
+            content=b"console.log('x')\n",
         )
 
         with self.assertRaises(ValueError):
@@ -117,7 +119,7 @@ class TestTSPyChunking(unittest.TestCase):
                 request=request,
                 language="javascript",
                 config=ChunkingConfig(
-                    max_chars=80, overlap_chars=10, min_split_chars=20
+                    max_bytes=80, overlap_bytes=10, min_split_bytes=20
                 ),
             )
 

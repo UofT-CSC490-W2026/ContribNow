@@ -6,30 +6,29 @@ from typing import Protocol
 
 @dataclass(frozen=True)
 class ChunkingConfig:
-    max_chars: int = 1200
-    overlap_chars: int = 120
-    min_split_chars: int = 300
+    max_bytes: int = 1200
+    overlap_bytes: int = 120
+    min_split_bytes: int = 300
 
     def __post_init__(self) -> None:
-        if self.max_chars <= 0:
-            raise ValueError("max_chars must be > 0")
-        if self.overlap_chars < 0:
-            raise ValueError("overlap_chars must be >= 0")
-        if self.overlap_chars >= self.max_chars:
-            raise ValueError("overlap_chars must be < max_chars")
-        if self.min_split_chars < 0:
-            raise ValueError("min_split_chars must be >= 0")
-        if self.min_split_chars > self.max_chars:
-            raise ValueError("min_split_chars must be <= max_chars")
+        if self.max_bytes <= 0:
+            raise ValueError("max_bytes must be > 0")
+        if self.overlap_bytes < 0:
+            raise ValueError("overlap_bytes must be >= 0")
+        if self.overlap_bytes >= self.max_bytes:
+            raise ValueError("overlap_bytes must be < max_bytes")
+        if self.min_split_bytes < 0:
+            raise ValueError("min_split_bytes must be >= 0")
+        if self.min_split_bytes > self.max_bytes:
+            raise ValueError("min_split_bytes must be <= max_bytes")
 
 
 @dataclass(frozen=True)
 class FileChunkRequest:
     repo_slug: str
     file_path: str
-    # TODO(chunking-mem): prefer bytes + memoryview in orchestrator/strategies so
-    # the same source buffer can be reused without copying.
-    content: str
+    # TODO(chunking-mem): switch to memoryview-backed buffers to avoid copies.
+    content: bytes
 
 
 @dataclass(frozen=True)
@@ -39,13 +38,12 @@ class Chunk:
     file_path: str
     language: str | None
     strategy: str
-    start_offset: int
-    end_offset: int
+    start_byte: int
+    end_byte: int
     start_line: int
     end_line: int
-    # TODO(chunking-mem): store only source spans (start/end offsets) in chunk
-    # records and materialize text lazily right before embedding/write.
-    text: str
+    # TODO(chunking-mem): store only source spans and materialize bytes lazily.
+    content: bytes
 
 
 # TODO(chunking-mem): add a memory regression benchmark test that tracks peak RSS

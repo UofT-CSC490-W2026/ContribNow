@@ -17,32 +17,32 @@ class NaiveChunkingStrategy:
     def chunk(
         self, request: FileChunkRequest, language: str | None, config: ChunkingConfig
     ) -> list[Chunk]:
-        text = request.content
-        if not text:
+        source = request.content
+        if not source:
             return []
 
-        newline_offsets = [idx for idx, char in enumerate(text) if char == "\n"]
+        newline_offsets = [idx for idx, byte in enumerate(source) if byte == b"\n"[0]]
         chunks: list[Chunk] = []
         start = 0
-        text_len = len(text)
+        source_len = len(source)
 
-        while start < text_len:
-            limit = min(start + config.max_chars, text_len)
+        while start < source_len:
+            limit = min(start + config.max_bytes, source_len)
             end = limit
 
-            if limit < text_len:
-                floor = min(start + config.min_split_chars, limit)
-                split_at = text.rfind("\n", floor, limit)
+            if limit < source_len:
+                floor = min(start + config.min_split_bytes, limit)
+                split_at = source.rfind(b"\n", floor, limit)
                 if split_at != -1 and split_at + 1 > start:
                     end = split_at + 1
 
             if end <= start:
-                end = min(start + config.max_chars, text_len)
+                end = min(start + config.max_bytes, source_len)
                 if end <= start:
                     break
 
-            chunk_text = text[start:end]
-            if not chunk_text:
+            chunk_content = source[start:end]
+            if not chunk_content:
                 break
 
             start_line = _offset_to_line(newline_offsets, start)
@@ -54,24 +54,24 @@ class NaiveChunkingStrategy:
                         request.file_path,
                         start,
                         end,
-                        chunk_text,
+                        chunk_content,
                     ),
                     repo_slug=request.repo_slug,
                     file_path=request.file_path,
                     language=language,
                     strategy=self.name,
-                    start_offset=start,
-                    end_offset=end,
+                    start_byte=start,
+                    end_byte=end,
                     start_line=start_line,
                     end_line=end_line,
-                    text=chunk_text,
+                    content=chunk_content,
                 )
             )
 
-            if end >= text_len:
+            if end >= source_len:
                 break
 
-            start = max(end - config.overlap_chars, start + 1)
+            start = max(end - config.overlap_bytes, start + 1)
 
         return chunks
 
@@ -83,10 +83,9 @@ def _offset_to_line(newline_offsets: list[int], offset: int) -> int:
 
 
 def _build_chunk_id(
-    repo_slug: str, file_path: str, start: int, end: int, text: str
+    repo_slug: str, file_path: str, start: int, end: int, content: bytes
 ) -> str:
     payload = (
-        f"{repo_slug}:{file_path}:{start}:{end}:"
-        f"{hashlib.sha256(text.encode('utf-8', errors='replace')).hexdigest()}"
+        f"{repo_slug}:{file_path}:{start}:{end}:{hashlib.sha256(content).hexdigest()}"
     )
     return hashlib.sha256(payload.encode("utf-8", errors="replace")).hexdigest()

@@ -32,10 +32,10 @@ class TestNaiveChunking(unittest.TestCase):
             request=FileChunkRequest(
                 repo_slug="repo",
                 file_path=file_name,
-                content="",
+                content=b"",
             ),
             language="python",
-            config=ChunkingConfig(max_chars=100, overlap_chars=10, min_split_chars=20),
+            config=ChunkingConfig(max_bytes=100, overlap_bytes=10, min_split_bytes=20),
         )
         self.assertEqual(chunks, [])
 
@@ -43,42 +43,44 @@ class TestNaiveChunking(unittest.TestCase):
         strategy = NaiveChunkingStrategy()
         file_name = randomized_file_name()
         text = "".join(f"line-{idx}-abcdefghijklmnopqrstuvwxyz\n" for idx in range(120))
+        source = text.encode("utf-8")
         chunks = strategy.chunk(
             request=FileChunkRequest(
                 repo_slug="repo",
                 file_path=file_name,
-                content=text,
+                content=source,
             ),
             language="python",
-            config=ChunkingConfig(max_chars=200, overlap_chars=30, min_split_chars=80),
+            config=ChunkingConfig(max_bytes=200, overlap_bytes=30, min_split_bytes=80),
         )
 
         self.assertGreater(len(chunks), 1)
         for idx, chunk in enumerate(chunks):
             self.assertEqual(chunk.strategy, "naive")
-            self.assertLess(chunk.start_offset, chunk.end_offset)
+            self.assertLess(chunk.start_byte, chunk.end_byte)
             self.assertLessEqual(chunk.start_line, chunk.end_line)
             if idx > 0:
                 prev = chunks[idx - 1]
-                self.assertLess(prev.start_offset, chunk.start_offset)
-                self.assertGreater(prev.end_offset, chunk.start_offset)
+                self.assertLess(prev.start_byte, chunk.start_byte)
+                self.assertGreater(prev.end_byte, chunk.start_byte)
 
     def test_last_chunk_ends_at_content_end(self) -> None:
         strategy = NaiveChunkingStrategy()
         file_name = randomized_file_name()
         text = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n"
+        source = text.encode("utf-8")
         chunks = strategy.chunk(
             request=FileChunkRequest(
                 repo_slug="repo",
                 file_path=file_name,
-                content=text,
+                content=source,
             ),
             language=None,
-            config=ChunkingConfig(max_chars=8, overlap_chars=2, min_split_chars=3),
+            config=ChunkingConfig(max_bytes=8, overlap_bytes=2, min_split_bytes=3),
         )
 
         self.assertGreaterEqual(len(chunks), 1)
-        self.assertEqual(chunks[-1].end_offset, len(text))
+        self.assertEqual(chunks[-1].end_byte, len(source))
 
 
 if __name__ == "__main__":
