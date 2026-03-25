@@ -4,10 +4,18 @@ from src.pipeline.embedding.interfaces import (
     EmbeddingRequest,
     EmbeddingResult,
 )
+from src.pipeline.embedding.providers import (
+    HuggingFaceEmbeddingProvider,
+    RandomEmbeddingProvider,
+    OpenAIEmbeddingProvider,
+)
 
 __all__ = [
     "EmbeddingConfig",
     "EmbeddingProvider",
     "EmbeddingRequest",
     "EmbeddingResult",
+    "HuggingFaceEmbeddingProvider",
+    "RandomEmbeddingProvider",
+    "OpenAIEmbeddingProvider",
 ]
