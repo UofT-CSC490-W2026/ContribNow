@@ -73,11 +73,7 @@ Example models:
 
 ### Local (stub)
 
-`LocalEmbeddingProvider` returns deterministic fake vectors for testing.
-
-### Random (if present)
-
-`RandomEmbeddingProvider` is exported if available in the package.
+`LocalEmbeddingProvider` returns fake vectors for testing.
 
 ## Batching + Preprocessing
 
