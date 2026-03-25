@@ -16,7 +16,6 @@ from src.pipeline.embedding import (
     HuggingFaceEmbeddingProvider,
     LocalEmbeddingProvider,
     OpenAIEmbeddingProvider,
-    RandomEmbeddingProvider,
     batch_requests,
 )
 ```

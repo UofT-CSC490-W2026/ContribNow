@@ -14,7 +14,7 @@ from src.pipeline.embedding.interfaces import (
 class LocalEmbeddingProvider(EmbeddingProvider):
     @property
     def name(self) -> str:
-        return "random"
+        return "local"
 
     def embed(
         self, requests: list[EmbeddingRequest], config: EmbeddingConfig
