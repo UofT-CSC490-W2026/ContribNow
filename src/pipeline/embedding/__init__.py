@@ -4,9 +4,10 @@ from src.pipeline.embedding.interfaces import (
     EmbeddingRequest,
     EmbeddingResult,
 )
+from src.pipeline.embedding.batcher import batch_requests
 from src.pipeline.embedding.providers import (
     HuggingFaceEmbeddingProvider,
-    RandomEmbeddingProvider,
+    LocalEmbeddingProvider,
     OpenAIEmbeddingProvider,
 )
 
@@ -15,7 +16,8 @@ __all__ = [
     "EmbeddingProvider",
     "EmbeddingRequest",
     "EmbeddingResult",
+    "batch_requests",
     "HuggingFaceEmbeddingProvider",
-    "RandomEmbeddingProvider",
+    "LocalEmbeddingProvider",
     "OpenAIEmbeddingProvider",
 ]

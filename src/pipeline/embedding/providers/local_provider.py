@@ -11,7 +11,7 @@ from src.pipeline.embedding.interfaces import (
 
 # This is a stub provider meant for use in tests or offline dev
 # Returns fake vectors
-class RandomEmbeddingProvider(EmbeddingProvider):
+class LocalEmbeddingProvider(EmbeddingProvider):
     @property
     def name(self) -> str:
         return "random"
