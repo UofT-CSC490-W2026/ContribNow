@@ -57,6 +57,23 @@ class TestEmbeddingBatcher(unittest.TestCase):
 
         self.assertEqual([len(batch) for batch in batches], [2, 1])
 
+    def test_total_token_limit_applies_without_per_item_max(self) -> None:
+        config = EmbeddingConfig(model="test", batch_size=10, max_tokens=None)
+        requests = [
+            EmbeddingRequest(text="one two", metadata={"i": 0}),
+            EmbeddingRequest(text="three four", metadata={"i": 1}),
+            EmbeddingRequest(text="five six", metadata={"i": 2}),
+        ]
+
+        batches = batch_requests(
+            requests,
+            config,
+            token_counter=fake_token_counter,
+            max_total_tokens=4,
+        )
+
+        self.assertEqual([len(batch) for batch in batches], [2, 1])
+
     def test_requires_token_counter_when_max_tokens_set(self) -> None:
         config = EmbeddingConfig(model="test", max_tokens=2)
         requests = [EmbeddingRequest(text="a b", metadata={})]

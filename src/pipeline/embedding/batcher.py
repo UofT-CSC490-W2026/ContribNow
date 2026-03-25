@@ -26,15 +26,15 @@ def batch_requests(
     if not request_list:
         return []
 
-    if config.max_tokens is not None and token_counter is None:
-        raise ValueError("token_counter is required when max_tokens is set")
+    if (config.max_tokens is not None or max_total_tokens is not None) and token_counter is None:  
+        raise ValueError("token_counter is required when any token-based limit is set")  
 
     sizes = []
     for req in request_list:
         token_count = None
-        if config.max_tokens is not None:
+        if config.max_tokens is not None or max_total_tokens is not None:
             token_count = token_counter(req.text, config.model)
-            if token_count > config.max_tokens:
+            if config.max_tokens is not None and token_count > config.max_tokens:
                 raise ValueError(
                     f"Embedding input exceeds max_tokens ({token_count} > {config.max_tokens})."
                 )
