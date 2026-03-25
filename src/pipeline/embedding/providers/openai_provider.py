@@ -14,8 +14,6 @@ from src.pipeline.embedding.interfaces import (
     EmbeddingResult,
 )
 
-import tiktoken
-
 class OpenAIEmbeddingProvider(EmbeddingProvider):
     @property
     def name(self) -> str:
@@ -49,6 +47,8 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 
     @staticmethod
     def _count_tokens(text: str, model: str) -> int:
+        import tiktoken
+        
         try:
             enc = tiktoken.encoding_for_model(model)
         except Exception:
