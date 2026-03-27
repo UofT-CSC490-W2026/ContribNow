@@ -6,7 +6,7 @@ from typing import Protocol
 import numpy as np
 from numpy.typing import NDArray
 
-# floating[Any] to allow arbitrary precision
+# np.floating[np.generic] = array of any NumPy floating dtype
 FloatVector = NDArray[np.floating[np.generic]]
 
 
