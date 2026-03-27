@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -91,6 +92,23 @@ def _head_commit(repo_dir: Path) -> str | None:
 
 _MAX_HASH_FILE_SIZE = 1 * 1024 * 1024  # skip hashing files larger than 1 MB
 
+_IGNORED_DIR_NAMES: set[str] = {
+    ".git",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "venv",
+    "env",
+    "node_modules",
+    "dist",
+    "build",
+    ".next",
+    ".nuxt",
+}
+
 _BINARY_EXTENSIONS: set[str] = {
     # Images
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg", ".tiff",
@@ -119,12 +137,9 @@ def _file_content_hash(file_path: Path, size: int) -> str:
         return ""
     if file_path.suffix.lower() in _BINARY_EXTENSIONS:
         return ""
-    h = hashlib.sha256()
     try:
         with file_path.open("rb") as fh:
-            for chunk in iter(lambda: fh.read(65536), b""):
-                h.update(chunk)
-        return h.hexdigest()
+            return hashlib.file_digest(fh, "sha256").hexdigest()
     except OSError:
         return ""
 
@@ -137,24 +152,33 @@ def _list_files(repo_dir: Path) -> tuple[list[str], list[dict[str, object]]]:
         files              — posix-style relative paths (backward-compatible)
         files_with_hashes  — [{path, content_hash, size_bytes}] for each file
     """
-    files: list[str] = []
-    files_with_hashes: list[dict[str, object]] = []
-    for path in sorted(repo_dir.rglob("*")):
-        if path.is_file() and ".git" not in path.parts:
+    repo_dir = Path(repo_dir)
+    records: list[dict[str, object]] = []
+
+    for dirpath, dirnames, filenames in os.walk(repo_dir):
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if d.lower() not in _IGNORED_DIR_NAMES
+        ]
+        for name in filenames:
+            path = Path(dirpath) / name
             rel = path.relative_to(repo_dir).as_posix()
-            files.append(rel)
             try:
                 size: int = path.stat().st_size
             except OSError:
                 size = 0
-            files_with_hashes.append(
+            records.append(
                 {
                     "path": rel,
                     "content_hash": _file_content_hash(path, size),
                     "size_bytes": size,
                 }
             )
-    return files, files_with_hashes
+
+    records.sort(key=lambda r: str(r["path"]))
+    files = [str(r["path"]) for r in records]
+    return files, records
 
 
 def _build_commit_log(repo_dir: Path, max_count: int = COMMIT_LOG_LIMIT) -> list[dict[str, object]]:
