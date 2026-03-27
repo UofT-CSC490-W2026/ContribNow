@@ -34,19 +34,21 @@ jobs:
           pytest --junitxml=pytest.xml | tee pytest-coverage.txt
 
       - name: Upload HTML coverage report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: htmlcov-report
           path: htmlcov/
 
       - name: Upload XML coverage report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
           path: coverage.xml
 
       - name: Post coverage comment to PR
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
         uses: MishaKav/pytest-coverage-comment@v1
         with:
           pytest-coverage-path: ./pytest-coverage.txt
