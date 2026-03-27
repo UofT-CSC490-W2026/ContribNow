@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+import numpy as np
+
 from src.pipeline.chunking import (
     Chunk,
     ChunkingConfig,
@@ -23,8 +25,8 @@ from src.pipeline.embedding import (
     EmbeddingRequest,
     batch_requests,
 )
-from src.pipeline.indexing.vector_store import InMemoryVectorStore, VectorRecord, VectorStore
 from src.pipeline.utils import read_json
+from src.pipeline.vector_store import InMemoryVectorStore, VectorRecord, VectorStore
 
 TokenCounter = Callable[[str, str], int]
 
@@ -83,11 +85,17 @@ def _iter_files(
             if not isinstance(rel, str):
                 continue
             content_hash = entry.get("content_hash")
-            if skip_empty_hashes and (not isinstance(content_hash, str) or content_hash == ""):
+            if skip_empty_hashes and (
+                not isinstance(content_hash, str) or content_hash == ""
+            ):
                 continue
             size_bytes = entry.get("size_bytes")
             size_value = size_bytes if isinstance(size_bytes, int) else None
-            if max_file_bytes is not None and size_value is not None and size_value > max_file_bytes:
+            if (
+                max_file_bytes is not None
+                and size_value is not None
+                and size_value > max_file_bytes
+            ):
                 continue
             path = repo_root / rel
             if not path.exists() or not path.is_file():
@@ -149,7 +157,9 @@ def _chunk_file(
     default_strategy: ChunkingStrategy,
     config: ChunkingConfig,
 ) -> list[Chunk]:
-    language = registry.detect(rel_path, content[:1024].decode("utf-8", errors="replace"))
+    language = registry.detect(
+        rel_path, content[:1024].decode("utf-8", errors="replace")
+    )
     strategy = registry.get_strategy(language or "") or default_strategy
     request = FileChunkRequest(
         repo_slug=repo_slug,
@@ -162,23 +172,30 @@ def _chunk_file(
 def _build_requests(chunks: Iterable[Chunk]) -> list[EmbeddingRequest]:
     requests: list[EmbeddingRequest] = []
     for chunk in chunks:
-        text = chunk.content.decode("utf-8", errors="replace")
         requests.append(
             EmbeddingRequest(
-                text=text,
+                text=chunk.content.decode("utf-8", errors="replace"),
                 metadata={
-                    "chunk_id": chunk.chunk_id,
                     "repo_slug": chunk.repo_slug,
                     "file_path": chunk.file_path,
-                    "language": chunk.language,
-                    "strategy": chunk.strategy,
                     "start_line": chunk.start_line,
                     "end_line": chunk.end_line,
-                    "content": text,
                 },
             )
         )
     return requests
+
+
+def _record_from_embedding_metadata(
+    *, vector: list[float], metadata: dict[str, Any]
+) -> VectorRecord:
+    return VectorRecord(
+        vector=np.asarray(vector, dtype=np.float32),
+        repo_slug=str(metadata["repo_slug"]),
+        file_path=str(metadata["file_path"]),
+        start_line=int(metadata["start_line"]),
+        end_line=int(metadata["end_line"]),
+    )
 
 
 def index_repo(
@@ -235,17 +252,18 @@ def index_repo(
         batches = batch_requests(
             requests,
             embedding_config,
-            token_counter=token_counter if embedding_config.max_tokens is not None else None,
+            token_counter=token_counter
+            if embedding_config.max_tokens is not None
+            else None,
         )
         for batch in batches:
             batches_sent += 1
             result = embedding_provider.embed(batch, embedding_config)
             records = [
-                VectorRecord(vector=vector, metadata=meta)
+                _record_from_embedding_metadata(vector=vector, metadata=meta)
                 for vector, meta in zip(result.vectors, result.metadata, strict=True)
             ]
-            store.upsert(records)
-            vectors_upserted += len(records)
+            vectors_upserted += store.upsert(records)
 
     return IndexingStats(
         files_seen=files_seen,

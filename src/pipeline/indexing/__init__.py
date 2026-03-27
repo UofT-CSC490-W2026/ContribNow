@@ -3,7 +3,12 @@ from src.pipeline.indexing.indexer import (
     index_repo,
     index_repo_in_memory,
 )
-from src.pipeline.indexing.vector_store import InMemoryVectorStore, SearchResult, VectorRecord, VectorStore
+from src.pipeline.vector_store import (
+    InMemoryVectorStore,
+    SearchResult,
+    VectorRecord,
+    VectorStore,
+)
 
 __all__ = [
     "IndexingStats",

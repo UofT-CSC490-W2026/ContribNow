@@ -4,7 +4,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from src.pipeline.chunking import ChunkingConfig
-from src.pipeline.embedding import EmbeddingConfig, EmbeddingRequest, LocalEmbeddingProvider
+from src.pipeline.embedding import (
+    EmbeddingConfig,
+    EmbeddingRequest,
+    LocalEmbeddingProvider,
+)
 from src.pipeline.indexing import index_repo_in_memory
 
 
@@ -12,7 +16,9 @@ class TestIndexingInMemory(unittest.TestCase):
     def test_indexes_and_searches(self) -> None:
         provider = LocalEmbeddingProvider()
         embedding_config = EmbeddingConfig(model="local-test", batch_size=4)
-        chunking_config = ChunkingConfig(max_bytes=200, overlap_bytes=0, min_split_bytes=50)
+        chunking_config = ChunkingConfig(
+            max_bytes=200, overlap_bytes=0, min_split_bytes=50
+        )
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -43,15 +49,17 @@ class TestIndexingInMemory(unittest.TestCase):
 
             query_req = EmbeddingRequest(text="def greet():", metadata={})
             query_vec = provider.embed([query_req], embedding_config).vectors[0]
-            results = store.search(query_vec, k=3, filters={"repo_slug": "demo-repo"})
+            results = store.search(query_vec, k=3, repo_slug="demo-repo")
 
             self.assertGreater(len(results), 0)
-            self.assertEqual(results[0].metadata["file_path"], "app.py")
+            self.assertEqual(results[0].file_path, "app.py")
 
     def test_delete_by_repo(self) -> None:
         provider = LocalEmbeddingProvider()
         embedding_config = EmbeddingConfig(model="local-test", batch_size=4)
-        chunking_config = ChunkingConfig(max_bytes=200, overlap_bytes=0, min_split_bytes=50)
+        chunking_config = ChunkingConfig(
+            max_bytes=200, overlap_bytes=0, min_split_bytes=50
+        )
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -81,7 +89,7 @@ class TestIndexingInMemory(unittest.TestCase):
 
             query_req = EmbeddingRequest(text="print('a')", metadata={})
             query_vec = provider.embed([query_req], embedding_config).vectors[0]
-            results = store.search(query_vec, k=3, filters={"repo_slug": "demo-repo"})
+            results = store.search(query_vec, k=3, repo_slug="demo-repo")
             self.assertEqual(len(results), 0)
 
 
