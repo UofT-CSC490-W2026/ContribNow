@@ -12,17 +12,17 @@ locals {
 module "networking" {
   source = "../../modules/networking"
 
-  vpc_cidr            = "10.0.0.0/16"
+  vpc_cidr             = "10.0.0.0/16"
   public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
   private_subnet_cidrs = ["10.0.3.0/24", "10.0.4.0/24"]
-  environment         = "dev"
+  environment          = local.environment
 }
 
-module "s3" {
-  source        = "../../modules/s3"
-  environment   = "dev"
-  bucket_prefix = "contribnow-datalake"
-}
+# module "s3" {
+#   source        = "../../modules/s3"
+#   environment   = local.environment
+#   bucket_prefix = "contribnow-datalake"
+# }
 
 module "rds" {
   source = "../../modules/rds"
@@ -33,11 +33,12 @@ module "rds" {
   db_username = var.db_username
   db_password = var.db_password
 
-  vpc_id                     = module.networking.vpc_id
-  private_subnet_ids         = module.networking.private_subnet_ids
+  vpc_id             = module.networking.vpc_id
+  private_subnet_ids = module.networking.private_subnet_ids
   allowed_security_group_ids = [
     # module.lambda.lambda_security_group_id,
     # module.ecs.ecs_security_group_id,
+    module.ec2.security_group_id
   ]
 
   db_instance_class       = local.rds_config.db_instance_class
@@ -45,6 +46,16 @@ module "rds" {
   deletion_protection     = local.rds_config.deletion_protection
   backup_retention_period = local.rds_config.backup_retention_period
   skip_final_snapshot     = local.rds_config.skip_final_snapshot
+}
+
+module "ec2" {
+  source = "../../modules/ec2"
+
+  vpc_id           = module.networking.vpc_id
+  environment      = local.environment
+  public_subnet_id = module.networking.public_subnet_ids[0]
+
+
 }
 
 # Temporarily commented out due to: cost concerns
