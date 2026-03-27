@@ -10,6 +10,7 @@ from src.pipeline.embedding import (
 )
 from src.pipeline.indexing.indexer import index_repo_in_memory
 
+_PROVIDERS = ("local", "huggingface", "openai")
 
 def _build_provider(name: str):
     normalized = name.strip().lower()
@@ -26,7 +27,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Index a repo into an in-memory vector store.")
     parser.add_argument("--ingest-path", type=Path, required=True, help="Path to ingest.json.")
     parser.add_argument("--repo-root", type=Path, required=True, help="Path to the repo checkout.")
-    parser.add_argument("--provider", default="local", help="Embedding provider: local|huggingface|openai.")
+    parser.add_argument("--provider", default="local", choices=_PROVIDERS, help="Embedding provider: local|huggingface|openai.")
     parser.add_argument("--model", required=True, help="Embedding model id.")
     parser.add_argument("--batch-size", type=int, default=32, help="Embedding batch size.")
     parser.add_argument("--request-timeout-s", type=float, default=30.0, help="Embedding request timeout.")
