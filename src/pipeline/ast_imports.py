@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.pipeline.ast_utils import language_for_file, parse_file
+from src.pipeline.ast_utils import get_parser, language_for_file
 
 # ---------------------------------------------------------------------------
 # Per-language AST extractors
@@ -142,12 +142,32 @@ def extract_imports(file_path: str | Path) -> list[str]:
     if size > _MAX_FILE_SIZE:
         return []
 
-    tree = parse_file(fp, language)
-    if tree is None:
+    try:
+        source = fp.read_bytes()
+    except OSError:
+        return []
+
+    # Cheap pre-filter: avoid tree-sitter parse if the file clearly cannot
+    # contain imports (major cost in transform profiles).
+    if language == "python":
+        if b"import" not in source and b"from" not in source:
+            return []
+    elif language in ("javascript", "typescript"):
+        if b"import" not in source and b"require" not in source:
+            return []
+    elif language == "java":
+        if b"import" not in source:
+            return []
+
+    parser = get_parser(language)
+    if parser is None:
+        return []
+    try:
+        tree = parser.parse(source)  # type: ignore[union-attr]
+    except Exception:
         return []
 
     try:
-        source = fp.read_bytes()
         if language == "python":
             return _extract_python_imports_ast(tree, source)
         if language in ("javascript", "typescript"):
@@ -155,7 +175,7 @@ def extract_imports(file_path: str | Path) -> list[str]:
         if language == "java":
             return _extract_java_imports_ast(tree, source)
     except Exception:
-        pass
+        return []
 
     return []
 
