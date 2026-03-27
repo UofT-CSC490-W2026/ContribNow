@@ -215,7 +215,12 @@ def index_repo(
 ) -> IndexingStats:
     manifest = read_json(Path(ingest_json_path))
     repo_slug = str(manifest.get("repo_slug") or repo_root.name)
-    head_commit = str(manifest.get("head_commit") or "")
+    head_commit = manifest.get("head_commit")
+    if not head_commit:
+        raise ValueError(
+            f"Missing or empty 'head_commit' in ingest manifest: {ingest_json_path}"
+        )
+    head_commit = str(head_commit)
     token_counter = token_counter or _simple_token_counter
 
     files_seen = 0
