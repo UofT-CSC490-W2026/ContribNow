@@ -6,7 +6,7 @@ on:
     branches: [main, a5p2]
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 jobs:
@@ -45,7 +45,38 @@ jobs:
 
       - name: Post coverage comment to PR
         if: github.event_name == 'pull_request'
+        id: coverage_comment
         uses: MishaKav/pytest-coverage-comment@v1
         with:
           pytest-coverage-path: ./pytest-coverage.txt
           junitxml-path: ./pytest.xml
+          hide-comment: true
+
+      - name: Update README coverage section
+        if: github.event_name == 'push'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          readme = Path("README.md")
+          start = "<!-- Pytest Coverage Comment:Begin -->"
+          end = "<!-- Pytest Coverage Comment:End -->"
+
+          text = readme.read_text(encoding="utf-8")
+          start_idx = text.index(start) + len(start)
+          end_idx = text.index(end)
+
+          coverage_block = """${{ steps.coverage_comment.outputs.coverageHtml }}""".strip()
+          if not coverage_block:
+              raise SystemExit("coverageHtml output is empty")
+
+          new_text = text[:start_idx] + "\n" + coverage_block + "\n" + text[end_idx:]
+          readme.write_text(new_text, encoding="utf-8")
+          PY
+
+      - name: Commit updated README
+        if: github.event_name == 'push'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: update README coverage report"
+          file_pattern: README.md
