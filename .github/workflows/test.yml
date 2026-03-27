@@ -2,8 +2,9 @@ name: Tests and Coverage
 
 on:
   pull_request:
-  push:
     branches: [main]
+  push:
+    branches: [main, a5p2]
 
 permissions:
   contents: write
