@@ -5,6 +5,10 @@ on:
   push:
     branches: [main, a5p2]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -24,7 +28,8 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run tests with coverage
-        run: pytest
+        run: |
+          pytest --junitxml=pytest.xml | tee pytest-coverage.txt
 
       - name: Upload HTML coverage report
         uses: actions/upload-artifact@v4
@@ -37,3 +42,10 @@ jobs:
         with:
           name: coverage-xml
           path: coverage.xml
+
+      - name: Post coverage comment to PR
+        if: github.event_name == 'pull_request'
+        uses: MishaKav/pytest-coverage-comment@v1
+        with:
+          pytest-coverage-path: ./pytest-coverage.txt
+          junitxml-path: ./pytest.xml
