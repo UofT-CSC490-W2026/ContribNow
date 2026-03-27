@@ -3,7 +3,7 @@ name: Tests and Coverage
 on:
   pull_request:
   push:
-    branches: [main, a5p2]
+    branches: [main]
 
 permissions:
   contents: write
@@ -45,7 +45,14 @@ jobs:
 
       - name: Post coverage comment to PR
         if: github.event_name == 'pull_request'
-        id: coverage_comment
+        uses: MishaKav/pytest-coverage-comment@v1
+        with:
+          pytest-coverage-path: ./pytest-coverage.txt
+          junitxml-path: ./pytest.xml
+
+      - name: Generate coverage HTML for README
+        if: github.event_name == 'push'
+        id: coverage_readme
         uses: MishaKav/pytest-coverage-comment@v1
         with:
           pytest-coverage-path: ./pytest-coverage.txt
@@ -66,7 +73,7 @@ jobs:
           start_idx = text.index(start) + len(start)
           end_idx = text.index(end)
 
-          coverage_block = """${{ steps.coverage_comment.outputs.coverageHtml }}""".strip()
+          coverage_block = """${{ steps.coverage_readme.outputs.coverageHtml }}""".strip()
           if not coverage_block:
               raise SystemExit("coverageHtml output is empty")
 
