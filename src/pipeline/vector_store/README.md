@@ -30,4 +30,4 @@ from src.pipeline.vector_store import (
 - `PgVectorStore`: Postgres/pgvector backend.
   - Requires `db_url` in constructor.
   - `ensure_schema()` creates extension/table/indexes.
-  - Uses `(repo_slug, file_path, start_line, end_line)` as the deterministic upsert key.
+  - Uses `(repo_slug, head_commit, file_path, start_line, end_line)` as the deterministic upsert key.
