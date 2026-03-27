@@ -188,8 +188,7 @@ def index_repo(
     embedding_provider: EmbeddingProvider,
     embedding_config: EmbeddingConfig,
     chunking_config: ChunkingConfig,
-    *,
-    registry: LanguageRegistry = build_language_registry(),
+    registry: LanguageRegistry,
     default_strategy: ChunkingStrategy = NaiveChunkingStrategy(),
     file_limit: int | None = None,
     max_file_bytes: int | None = None,
@@ -269,6 +268,7 @@ def index_repo_in_memory(
     skip_empty_hashes: bool = True,
 ) -> tuple[InMemoryVectorStore, IndexingStats]:
     store = InMemoryVectorStore()
+    registry = build_language_registry()
     stats = index_repo(
         ingest_json_path=ingest_json_path,
         repo_root=repo_root,
@@ -276,6 +276,7 @@ def index_repo_in_memory(
         embedding_provider=embedding_provider,
         embedding_config=embedding_config,
         chunking_config=chunking_config,
+        registry=registry,
         file_limit=file_limit,
         max_file_bytes=max_file_bytes,
         skip_empty_hashes=skip_empty_hashes,
