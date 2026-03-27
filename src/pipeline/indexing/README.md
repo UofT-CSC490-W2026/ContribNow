@@ -12,7 +12,7 @@ Flow:
 2. Load each file and chunk it using language-aware strategies.
 3. Build `EmbeddingRequest` objects per chunk.
 4. Batch and embed via an `EmbeddingProvider`.
-5. Upsert vectors + metadata into a `VectorStore`.
+5. Upsert vectors + minimal location fields into a `VectorStore`.
 
 ## Public API
 
@@ -42,16 +42,16 @@ Returned by `index_repo(...)` and `index_repo_in_memory(...)`:
 
 ### `VectorStore`
 
-Protocol implemented by vector stores (pgvector in the future, in-memory today):
+Protocol implemented by vector stores (in-memory and pgvector):
 
 - `upsert(records: list[VectorRecord])`
 - `delete_by_repo(repo_slug: str) -> int`
-- `search(query_vector: list[float], k: int = 5, filters: dict | None = None)`
+- `search(query_vector: np.ndarray, k: int = 5, repo_slug: str | None = None, file_path: str | None = None, head_commit: str | None = None)`
 
 ### `InMemoryVectorStore`
 
 Simple in-process store used for tests and local wiring. Supports cosine similarity search
-with metadata filtering.
+with explicit field filters.
 
 ## Indexing Functions
 
@@ -100,15 +100,14 @@ strategies when available and falls back to `NaiveChunkingStrategy` otherwise.
 
 ## Notes
 
-- This package does not implement a persistent vector database yet.
 - Use `InMemoryVectorStore` for tests and local validation.
-- Replace the store with a pgvector implementation for production.
-- Pseudo-code example usage after pgvector is integrated:
+- Use `PgVectorStore` for Postgres/pgvector-backed persistence.
+- Pseudo-code example:
 
 ```
 from src.pipeline.embedding import EmbeddingConfig
 from src.pipeline.embedding.providers.openai_provider import OpenAIEmbeddingProvider
-from src.pipeline.indexing.vector_store.pgvector import PgVectorStore
+from src.pipeline.vector_store import PgVectorStore
 
 provider = OpenAIEmbeddingProvider()
 config = EmbeddingConfig(model="text-embedding-3-large")
@@ -119,6 +118,6 @@ query_vec = provider.embed(
     config
 ).vectors[0]
 
-results = store.search(query_vec, k=12, filters={"repo_slug": "demo-repo"})
+results = store.search(query_vec, k=12, repo_slug="demo-repo")
 context = build_context(results, token_budget=3000)
 ```

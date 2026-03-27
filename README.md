@@ -74,6 +74,27 @@ Then run:
   --apply-schema
 ```
 
+## Live PgVector Test
+
+The repository includes a real integration test for `PgVectorStore` against a disposable local
+Postgres instance with the `pgvector` extension.
+
+Run it from the repo root:
+
+```bash
+bash scripts/run_pgvector_tests.sh
+```
+
+What the script does:
+- Syncs the optional `cloud` dependencies if `psycopg` is missing in `.venv`
+- Uses `PGVECTOR_TEST_DB_URL` directly if you already have a Postgres/pgvector instance
+- Otherwise starts a temporary `pgvector/pgvector:pg17` container on `localhost:54329`
+- Sets `RUN_PG_VECTOR_TESTS=1` and `PGVECTOR_TEST_DB_URL`
+- Runs `tests.test_postgres_vector_store.TestPgVectorStore.test_live_round_trip`
+
+You can override defaults with env vars such as `PGVECTOR_PORT`, `PGVECTOR_DB`,
+`PGVECTOR_USER`, `PGVECTOR_PASSWORD`, or `PGVECTOR_IMAGE`.
+
 ## Manual CLI (Alternative)
 
 ```bash
