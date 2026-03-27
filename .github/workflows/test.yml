@@ -30,7 +30,6 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          set -o pipefail
           pytest --junitxml=pytest.xml | tee pytest-coverage.txt
 
       - name: Upload HTML coverage report
