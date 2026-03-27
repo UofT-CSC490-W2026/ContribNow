@@ -218,7 +218,7 @@ class TestPgVectorStore(unittest.TestCase):
 
     @unittest.skipUnless(
         os.getenv("RUN_PG_VECTOR_TESTS") == "1",
-        "Set RUN_PG_VECTOR_TESTS=1 to run live PgVectorStore test",
+        "Set RUN_PG_VECTOR_TESTS=1 and PGVECTOR_TEST_DB_URL, or use bash scripts/run_pgvector_tests.sh",
     )
     def test_live_round_trip(self) -> None:
         db_url = os.getenv("PGVECTOR_TEST_DB_URL")
