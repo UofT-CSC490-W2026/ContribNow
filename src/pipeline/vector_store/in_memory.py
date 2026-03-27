@@ -76,7 +76,7 @@ class InMemoryVectorStore:
             return []
         query = np.asarray(query_vector, dtype=np.float32)
         if query.ndim != 1 or query.size == 0:
-            return []
+            raise ValueError("Query vector must be a non-empty 1D array.")
 
         scored: list[SearchResult] = []
         for record in self._records:
