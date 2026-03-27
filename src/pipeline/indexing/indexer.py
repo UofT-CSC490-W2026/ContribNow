@@ -106,12 +106,27 @@ def _iter_files(
 
     files = manifest.get("files")
     if not isinstance(files, list):
-        return []
+        return
     count = 0
     for rel in files:
         if not isinstance(rel, str):
             continue
-        path = repo_root / rel
+        rel_path = Path(rel)
+        # Disallow absolute paths from the manifest.
+        if rel_path.is_absolute():
+            continue
+        try:
+            # Resolve to eliminate ".." and follow symlinks.
+            path = (repo_root / rel_path).resolve()
+        except OSError:
+            # If the path cannot be resolved, skip it.
+            continue
+        try:
+            # Ensure the resolved path is within the repo root.
+            path.relative_to(repo_root.resolve())
+        except ValueError:
+            # Path escapes the repo root; skip it.
+            continue
         if not path.exists() or not path.is_file():
             continue
         if max_file_bytes is not None:

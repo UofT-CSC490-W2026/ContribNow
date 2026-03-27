@@ -34,7 +34,7 @@ from src.pipeline.indexing import (
 
 Returned by `index_repo(...)` and `index_repo_in_memory(...)`:
 
-- `files_seen`: files read from the ingest manifest
+- `files_seen`: manifest entries that resolved to existing files and were processed
 - `files_indexed`: files that produced at least one chunk
 - `chunks_indexed`: total chunks created
 - `batches_sent`: embedding batches sent
