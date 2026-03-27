@@ -46,7 +46,7 @@ Protocol implemented by vector stores (in-memory and pgvector):
 
 - `upsert(records: list[VectorRecord])`
 - `delete_by_repo(repo_slug: str) -> int`
-- `search(query_vector: np.ndarray, k: int = 5, repo_slug: str | None = None, file_path: str | None = None)`
+- `search(query_vector: np.ndarray, k: int = 5, repo_slug: str | None = None, file_path: str | None = None, head_commit: str | None = None)`
 
 ### `InMemoryVectorStore`
 
