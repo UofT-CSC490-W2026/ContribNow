@@ -7,3 +7,5 @@ tree-sitter-java>=0.23.0
 openai
 tiktoken
 sentence-transformers
+pytest
+pytest-cov
