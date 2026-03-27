@@ -17,12 +17,12 @@ from src.pipeline.vector_store import (
 
 ## Interface
 
-- `VectorRecord(vector, repo_slug, file_path, start_line, end_line)`: upsert payload (`vector` is `np.ndarray`)
-- `SearchResult(score, repo_slug, file_path, start_line, end_line, vector=None)`: search hit (`score` higher is better)
+- `VectorRecord(vector, repo_slug, file_path, start_line, end_line, head_commit)`: upsert payload (`vector` is `np.ndarray`)
+- `SearchResult(score, repo_slug, file_path, start_line, end_line, vector=None, head_commit=None)`: search hit (`score` higher is better)
 - `VectorStore` protocol:
   - `upsert(records) -> int`
   - `delete_by_repo(repo_slug) -> int`
-  - `search(query_vector, k=5, repo_slug=None, file_path=None) -> list[SearchResult]`
+  - `search(query_vector, k=5, repo_slug=None, file_path=None, head_commit=None) -> list[SearchResult]`
 
 ## Implementations
 
