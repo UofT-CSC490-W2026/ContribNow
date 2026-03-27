@@ -67,6 +67,9 @@ Parameters:
 - `embedding_provider`: provider instance
 - `embedding_config`: `EmbeddingConfig`
 - `chunking_config`: `ChunkingConfig`
+- `file_limit`: optional file count limit
+- `max_file_bytes`: optional skip threshold for large files
+- `skip_empty_hashes`: skip `files_with_hashes` entries with empty `content_hash`
 
 ### `index_repo_in_memory(...)`
 

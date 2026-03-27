@@ -66,7 +66,41 @@ def _iter_files(
     manifest: dict[str, Any],
     repo_root: Path,
     limit: int | None = None,
+    *,
+    max_file_bytes: int | None = None,
+    skip_empty_hashes: bool = True,
 ) -> Iterable[tuple[str, Path]]:
+    files_with_hashes = manifest.get("files_with_hashes")
+    if isinstance(files_with_hashes, list):
+        count = 0
+        for entry in files_with_hashes:
+            if not isinstance(entry, dict):
+                continue
+            rel = entry.get("path")
+            if not isinstance(rel, str):
+                continue
+            content_hash = entry.get("content_hash")
+            if skip_empty_hashes and (not isinstance(content_hash, str) or content_hash == ""):
+                continue
+            size_bytes = entry.get("size_bytes")
+            size_value = size_bytes if isinstance(size_bytes, int) else None
+            if max_file_bytes is not None and size_value is not None and size_value > max_file_bytes:
+                continue
+            path = repo_root / rel
+            if not path.exists() or not path.is_file():
+                continue
+            if max_file_bytes is not None and size_value is None:
+                try:
+                    if path.stat().st_size > max_file_bytes:
+                        continue
+                except OSError:
+                    continue
+            yield rel, path
+            count += 1
+            if limit is not None and count >= limit:
+                break
+        return
+
     files = manifest.get("files")
     if not isinstance(files, list):
         return []
@@ -77,6 +111,12 @@ def _iter_files(
         path = repo_root / rel
         if not path.exists() or not path.is_file():
             continue
+        if max_file_bytes is not None:
+            try:
+                if path.stat().st_size > max_file_bytes:
+                    continue
+            except OSError:
+                continue
         yield rel, path
         count += 1
         if limit is not None and count >= limit:
@@ -134,6 +174,8 @@ def index_repo(
     registry: DefaultLanguageRegistry | None = None,
     default_strategy: NaiveChunkingStrategy | None = None,
     file_limit: int | None = None,
+    max_file_bytes: int | None = None,
+    skip_empty_hashes: bool = True,
     token_counter: TokenCounter | None = None,
 ) -> IndexingStats:
     manifest = read_json(Path(ingest_json_path))
@@ -148,7 +190,13 @@ def index_repo(
     batches_sent = 0
     vectors_upserted = 0
 
-    for rel_path, path in _iter_files(manifest, Path(repo_root), limit=file_limit):
+    for rel_path, path in _iter_files(
+        manifest,
+        Path(repo_root),
+        limit=file_limit,
+        max_file_bytes=max_file_bytes,
+        skip_empty_hashes=skip_empty_hashes,
+    ):
         files_seen += 1
         try:
             content = path.read_bytes()
@@ -201,6 +249,8 @@ def index_repo_in_memory(
     chunking_config: ChunkingConfig,
     *,
     file_limit: int | None = None,
+    max_file_bytes: int | None = None,
+    skip_empty_hashes: bool = True,
 ) -> tuple[InMemoryVectorStore, IndexingStats]:
     store = InMemoryVectorStore()
     stats = index_repo(
@@ -211,5 +261,7 @@ def index_repo_in_memory(
         embedding_config=embedding_config,
         chunking_config=chunking_config,
         file_limit=file_limit,
+        max_file_bytes=max_file_bytes,
+        skip_empty_hashes=skip_empty_hashes,
     )
     return store, stats

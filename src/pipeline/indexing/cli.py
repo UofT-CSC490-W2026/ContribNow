@@ -37,6 +37,20 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-overlap-bytes", type=int, default=120, help="Overlap between chunks.")
     parser.add_argument("--chunk-min-split-bytes", type=int, default=300, help="Minimum bytes before newline split.")
     parser.add_argument("--file-limit", type=int, default=None, help="Optional limit on files processed.")
+    parser.add_argument("--max-file-bytes", type=int, default=None, help="Skip files larger than this size.")
+    parser.add_argument(
+        "--skip-empty-hashes",
+        dest="skip_empty_hashes",
+        action="store_true",
+        default=True,
+        help="Skip files with empty content_hash entries in files_with_hashes.",
+    )
+    parser.add_argument(
+        "--no-skip-empty-hashes",
+        dest="skip_empty_hashes",
+        action="store_false",
+        help="Do not skip files with empty content_hash entries.",
+    )
     return parser.parse_args()
 
 
@@ -62,6 +76,8 @@ def main() -> int:
         embedding_config=embedding_config,
         chunking_config=chunking_config,
         file_limit=args.file_limit,
+        max_file_bytes=args.max_file_bytes,
+        skip_empty_hashes=args.skip_empty_hashes,
     )
     print(
         "[indexing] files_seen="
