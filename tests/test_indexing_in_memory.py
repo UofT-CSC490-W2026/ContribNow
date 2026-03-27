@@ -29,6 +29,7 @@ class TestIndexingInMemory(unittest.TestCase):
 
             ingest = {
                 "repo_slug": "demo-repo",
+                "head_commit": "abc123",
                 "files": ["app.py"],
             }
             ingest_path = root / "ingest.json"
@@ -52,6 +53,7 @@ class TestIndexingInMemory(unittest.TestCase):
             results = store.search(query_vec, k=3, repo_slug="demo-repo")
 
             self.assertGreater(len(results), 0)
+            self.assertEqual(results[0].head_commit, "abc123")
             self.assertEqual(results[0].file_path, "app.py")
 
     def test_delete_by_repo(self) -> None:
@@ -70,6 +72,7 @@ class TestIndexingInMemory(unittest.TestCase):
 
             ingest = {
                 "repo_slug": "demo-repo",
+                "head_commit": "def456",
                 "files": ["a.py", "b.py"],
             }
             ingest_path = root / "ingest.json"

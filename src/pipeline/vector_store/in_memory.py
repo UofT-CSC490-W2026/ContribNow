@@ -23,12 +23,13 @@ class InMemoryVectorStore:
 
     def __init__(self) -> None:
         self._records: list[VectorRecord] = []
-        self._by_span: dict[tuple[str, str, int, int], int] = {}
+        self._by_span: dict[tuple[str, str, str, int, int], int] = {}
 
     def upsert(self, records: list[VectorRecord]) -> int:
         for record in records:
             span_key = (
                 record.repo_slug,
+                record.head_commit,
                 record.file_path,
                 int(record.start_line),
                 int(record.end_line),
@@ -53,6 +54,7 @@ class InMemoryVectorStore:
         self._by_span = {
             (
                 record.repo_slug,
+                record.head_commit,
                 record.file_path,
                 record.start_line,
                 record.end_line,
@@ -67,6 +69,7 @@ class InMemoryVectorStore:
         k: int = 5,
         *,
         repo_slug: str | None = None,
+        head_commit: str | None = None,
         file_path: str | None = None,
     ) -> list[SearchResult]:
         if k <= 0:
@@ -79,6 +82,8 @@ class InMemoryVectorStore:
         for record in self._records:
             if repo_slug is not None and record.repo_slug != repo_slug:
                 continue
+            if head_commit is not None and record.head_commit != head_commit:
+                continue
             if file_path is not None and record.file_path != file_path:
                 continue
 
@@ -87,6 +92,7 @@ class InMemoryVectorStore:
                 SearchResult(
                     score=score,
                     repo_slug=record.repo_slug,
+                    head_commit=record.head_commit,
                     file_path=record.file_path,
                     start_line=record.start_line,
                     end_line=record.end_line,

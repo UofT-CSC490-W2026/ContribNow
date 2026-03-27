@@ -14,6 +14,7 @@ FloatVector = NDArray[np.floating[np.generic]]
 class VectorRecord:
     vector: FloatVector
     repo_slug: str
+    head_commit: str
     file_path: str
     start_line: int
     end_line: int
@@ -24,6 +25,7 @@ class SearchResult:
     # Higher score = better match.
     score: float
     repo_slug: str
+    head_commit: str
     file_path: str
     start_line: int
     end_line: int
@@ -43,6 +45,7 @@ class VectorStore(Protocol):
         k: int = 5,
         *,
         repo_slug: str | None = None,
+        head_commit: str | None = None,
         file_path: str | None = None,
     ) -> list[SearchResult]:
         """Return top-k results for a query vector with optional filters."""

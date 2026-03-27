@@ -192,6 +192,7 @@ def _record_from_embedding_metadata(
     return VectorRecord(
         vector=np.asarray(vector, dtype=np.float32),
         repo_slug=str(metadata["repo_slug"]),
+        head_commit=str(metadata["head_commit"]),
         file_path=str(metadata["file_path"]),
         start_line=int(metadata["start_line"]),
         end_line=int(metadata["end_line"]),
@@ -214,6 +215,7 @@ def index_repo(
 ) -> IndexingStats:
     manifest = read_json(Path(ingest_json_path))
     repo_slug = str(manifest.get("repo_slug") or repo_root.name)
+    head_commit = str(manifest.get("head_commit") or "")
     token_counter = token_counter or _simple_token_counter
 
     files_seen = 0
@@ -249,6 +251,8 @@ def index_repo(
         chunks_indexed += len(chunks)
 
         requests = _build_requests(chunks)
+        for request in requests:
+            request.metadata["head_commit"] = head_commit
         batches = batch_requests(
             requests,
             embedding_config,

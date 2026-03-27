@@ -9,6 +9,7 @@ from src.pipeline.vector_store import PgVectorStore, VectorRecord
 
 
 class _FakeCursor:
+    # Minimal cursor double used by the unit tests below to capture SQL calls.
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, object]] = []
         self._rows: list[tuple] = []
@@ -34,6 +35,7 @@ class _FakeCursor:
 
 
 class _FakeConnection:
+    # Minimal connection double that tracks commits without requiring Postgres.
     def __init__(self, cursor: _FakeCursor) -> None:
         self._cursor = cursor
         self.commit_calls = 0
@@ -92,7 +94,7 @@ class TestPgVectorStore(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                "PRIMARY KEY (repo_slug, file_path, start_line, end_line)" in sql
+                "PRIMARY KEY (repo_slug, head_commit, file_path, start_line, end_line)"
                 for sql in statements
             )
         )
@@ -111,6 +113,7 @@ class TestPgVectorStore(unittest.TestCase):
             VectorRecord(
                 vector=np.asarray([0.1, 0.2, 0.3], dtype=np.float32),
                 repo_slug="repo",
+                head_commit="abc123",
                 file_path="a.py",
                 start_line=1,
                 end_line=10,
@@ -118,6 +121,7 @@ class TestPgVectorStore(unittest.TestCase):
             VectorRecord(
                 vector=np.asarray([0.4, 0.5, 0.6], dtype=np.float32),
                 repo_slug="repo",
+                head_commit="abc123",
                 file_path="b.py",
                 start_line=1,
                 end_line=8,
@@ -134,12 +138,16 @@ class TestPgVectorStore(unittest.TestCase):
         ]
         self.assertEqual(len(executemany_calls), 1)
         _, sql, params = executemany_calls[0]
-        self.assertIn("ON CONFLICT (repo_slug, file_path, start_line, end_line)", sql)
+        self.assertIn(
+            "ON CONFLICT (repo_slug, head_commit, file_path, start_line, end_line)",
+            sql,
+        )
         self.assertEqual(len(params), 2)
         self.assertEqual(params[0][0], "repo")
-        self.assertEqual(params[0][1], "a.py")
-        self.assertEqual(params[0][2], 1)
-        self.assertEqual(params[0][3], 10)
+        self.assertEqual(params[0][1], "abc123")
+        self.assertEqual(params[0][2], "a.py")
+        self.assertEqual(params[0][3], 1)
+        self.assertEqual(params[0][4], 10)
 
     def test_upsert_rejects_dimension_mismatch(self) -> None:
         store = PgVectorStore(
@@ -149,6 +157,7 @@ class TestPgVectorStore(unittest.TestCase):
         bad_record = VectorRecord(
             vector=np.asarray([0.1, 0.2], dtype=np.float32),
             repo_slug="repo",
+            head_commit="abc123",
             file_path="bad.py",
             start_line=1,
             end_line=1,
@@ -165,8 +174,8 @@ class TestPgVectorStore(unittest.TestCase):
         fake_cursor = _FakeCursor()
         fake_cursor.set_rows(
             [
-                ("repo", "a.py", 1, 10, 0.01),
-                ("repo", "b.py", 1, 8, 0.08),
+                ("repo", "abc123", "a.py", 1, 10, 0.01),
+                ("repo", "abc123", "b.py", 1, 8, 0.08),
             ]
         )
         fake_conn = _FakeConnection(fake_cursor)
@@ -176,16 +185,19 @@ class TestPgVectorStore(unittest.TestCase):
                 query_vector=np.asarray([0.1, 0.2, 0.3], dtype=np.float32),
                 k=2,
                 repo_slug="repo",
+                head_commit="abc123",
             )
 
         self.assertEqual(len(results), 2)
         self.assertGreater(results[0].score, results[1].score)
+        self.assertEqual(results[0].head_commit, "abc123")
         self.assertEqual(results[0].file_path, "a.py")
 
         execute_calls = [call for call in fake_cursor.calls if call[0] == "execute"]
         self.assertEqual(len(execute_calls), 1)
         _, sql, params = execute_calls[0]
         self.assertIn("repo_slug = %s", sql)
+        self.assertIn("head_commit = %s", sql)
         self.assertEqual(params[-1], 2)
 
     def test_search_rejects_dimension_mismatch(self) -> None:
@@ -225,6 +237,7 @@ class TestPgVectorStore(unittest.TestCase):
         if not db_url:
             self.skipTest("PGVECTOR_TEST_DB_URL is required")
 
+        # Use a unique table so repeated local runs do not interfere with each other.
         table_name = f"rag_vectors_it_{uuid.uuid4().hex[:8]}"
         store = PgVectorStore(
             db_url=db_url, table_name=table_name, embedding_dimensions=3
@@ -237,6 +250,7 @@ class TestPgVectorStore(unittest.TestCase):
                     VectorRecord(
                         vector=np.asarray([0.9, 0.1, 0.0], dtype=np.float32),
                         repo_slug="repo",
+                        head_commit="abc123",
                         file_path="src/app.py",
                         start_line=1,
                         end_line=1,
@@ -244,20 +258,25 @@ class TestPgVectorStore(unittest.TestCase):
                     VectorRecord(
                         vector=np.asarray([0.1, 0.9, 0.0], dtype=np.float32),
                         repo_slug="repo",
+                        head_commit="abc123",
                         file_path="src/lib.py",
                         start_line=1,
                         end_line=1,
                     ),
                 ]
             )
+            # Query should rank the first vector higher for this input direction.
             results = store.search(
                 query_vector=np.asarray([0.85, 0.15, 0.0], dtype=np.float32),
                 k=1,
                 repo_slug="repo",
+                head_commit="abc123",
             )
             self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].head_commit, "abc123")
             self.assertEqual(results[0].file_path, "src/app.py")
         finally:
+            # Drop the temporary table so the external database stays clean.
             with store._connect() as conn:
                 with conn.cursor() as cur:
                     cur.execute(f"DROP TABLE IF EXISTS {store._table_ref}")

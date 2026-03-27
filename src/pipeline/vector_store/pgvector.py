@@ -48,13 +48,14 @@ class PgVectorStore:
 
                     CREATE TABLE IF NOT EXISTS {self._table_ref} (
                         repo_slug TEXT NOT NULL,
+                        head_commit TEXT NOT NULL,
                         file_path TEXT NOT NULL,
                         start_line INTEGER NOT NULL,
                         end_line INTEGER NOT NULL,
                         embedding {vector_type} NOT NULL,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                        PRIMARY KEY (repo_slug, file_path, start_line, end_line)
+                        PRIMARY KEY (repo_slug, head_commit, file_path, start_line, end_line)
                     );
                     """
                 )
@@ -82,6 +83,7 @@ class PgVectorStore:
             rows.append(
                 (
                     record.repo_slug,
+                    record.head_commit,
                     record.file_path,
                     int(record.start_line),
                     int(record.end_line),
@@ -92,13 +94,14 @@ class PgVectorStore:
         sql = f"""
             INSERT INTO {self._table_ref} (
                 repo_slug,
+                head_commit,
                 file_path,
                 start_line,
                 end_line,
                 embedding
             )
-            VALUES (%s, %s, %s, %s, %s::vector)
-            ON CONFLICT (repo_slug, file_path, start_line, end_line)
+            VALUES (%s, %s, %s, %s, %s, %s::vector)
+            ON CONFLICT (repo_slug, head_commit, file_path, start_line, end_line)
             DO UPDATE SET
                 embedding = EXCLUDED.embedding,
                 updated_at = NOW()
@@ -127,6 +130,7 @@ class PgVectorStore:
         k: int = 5,
         *,
         repo_slug: str | None = None,
+        head_commit: str | None = None,
         file_path: str | None = None,
     ) -> list[SearchResult]:
         if k <= 0:
@@ -138,6 +142,9 @@ class PgVectorStore:
         if repo_slug is not None:
             where_clauses.append("repo_slug = %s")
             params.append(repo_slug)
+        if head_commit is not None:
+            where_clauses.append("head_commit = %s")
+            params.append(head_commit)
         if file_path is not None:
             where_clauses.append("file_path = %s")
             params.append(file_path)
@@ -145,6 +152,7 @@ class PgVectorStore:
         sql = f"""
             SELECT
                 repo_slug,
+                head_commit,
                 file_path,
                 start_line,
                 end_line,
@@ -164,14 +172,15 @@ class PgVectorStore:
 
         results: list[SearchResult] = []
         for row in rows:
-            distance = float(row[4])
+            distance = float(row[5])
             results.append(
                 SearchResult(
                     score=1.0 - distance,
                     repo_slug=str(row[0]),
-                    file_path=str(row[1]),
-                    start_line=int(row[2]),
-                    end_line=int(row[3]),
+                    head_commit=str(row[1]),
+                    file_path=str(row[2]),
+                    start_line=int(row[3]),
+                    end_line=int(row[4]),
                     vector=None,
                 )
             )
