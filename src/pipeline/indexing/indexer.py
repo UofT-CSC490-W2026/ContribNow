@@ -5,9 +5,12 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from src.pipeline.chunking import (
+    Chunk,
     ChunkingConfig,
+    ChunkingStrategy,
     DefaultLanguageRegistry,
     FileChunkRequest,
+    LanguageRegistry,
     NaiveChunkingStrategy,
     TSJavaChunkingStrategy,
     TSJavaScriptChunkingStrategy,
@@ -127,10 +130,10 @@ def _chunk_file(
     repo_slug: str,
     rel_path: str,
     content: bytes,
-    registry: DefaultLanguageRegistry,
-    default_strategy: NaiveChunkingStrategy,
+    registry: LanguageRegistry,
+    default_strategy: ChunkingStrategy,
     config: ChunkingConfig,
-) -> list[Any]:
+) -> list[Chunk]:
     language = registry.detect(rel_path, content[:1024].decode("utf-8", errors="replace"))
     strategy = registry.get_strategy(language or "") or default_strategy
     request = FileChunkRequest(
@@ -141,7 +144,7 @@ def _chunk_file(
     return strategy.chunk(request, language, config)
 
 
-def _build_requests(chunks: Iterable[Any]) -> list[EmbeddingRequest]:
+def _build_requests(chunks: Iterable[Chunk]) -> list[EmbeddingRequest]:
     requests: list[EmbeddingRequest] = []
     for chunk in chunks:
         text = chunk.content.decode("utf-8", errors="replace")
@@ -171,8 +174,8 @@ def index_repo(
     embedding_config: EmbeddingConfig,
     chunking_config: ChunkingConfig,
     *,
-    registry: DefaultLanguageRegistry | None = None,
-    default_strategy: NaiveChunkingStrategy | None = None,
+    registry: LanguageRegistry = build_language_registry(),
+    default_strategy: ChunkingStrategy = NaiveChunkingStrategy(),
     file_limit: int | None = None,
     max_file_bytes: int | None = None,
     skip_empty_hashes: bool = True,
@@ -180,8 +183,6 @@ def index_repo(
 ) -> IndexingStats:
     manifest = read_json(Path(ingest_json_path))
     repo_slug = str(manifest.get("repo_slug") or repo_root.name)
-    registry = registry or build_language_registry()
-    default_strategy = default_strategy or NaiveChunkingStrategy()
     token_counter = token_counter or _simple_token_counter
 
     files_seen = 0
