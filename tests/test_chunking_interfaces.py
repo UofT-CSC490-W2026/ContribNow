@@ -5,7 +5,6 @@ from src.pipeline.chunking import ChunkingConfig
 
 class TestChunkingInterfaces(unittest.TestCase):
     def test_chunking_config_validation(self) -> None:
-        assert False
         with self.assertRaises(ValueError):
             ChunkingConfig(max_bytes=0)
         with self.assertRaises(ValueError):
