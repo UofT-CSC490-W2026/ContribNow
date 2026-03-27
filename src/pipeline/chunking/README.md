@@ -17,10 +17,12 @@ from src.pipeline.chunking import (
     get_language_registry,
     reset_language_registry,
     NaiveChunkingStrategy,
+    TSGoChunkingStrategy,
     TSJavaChunkingStrategy,
     TSJavaScriptChunkingStrategy,
     TSJSXChunkingStrategy,
     TSPyChunkingStrategy,
+    TSTypeScriptChunkingStrategy,
 )
 ```
 
@@ -86,9 +88,15 @@ Important:
 - `TSJSXChunkingStrategy`
   - JSX Tree-sitter chunking (JS grammar)
   - semantic boundaries from JS definition node types
+- `TSTypeScriptChunkingStrategy`
+  - TypeScript Tree-sitter chunking
+  - semantic boundaries from TS declaration node types
 - `TSJavaChunkingStrategy`
   - Java Tree-sitter chunking
   - semantic boundaries from Java declaration node types
+- `TSGoChunkingStrategy`
+  - Go Tree-sitter chunking
+  - semantic boundaries from Go declaration node types
 
 ## Language Registry
 
@@ -110,10 +118,12 @@ from src.pipeline.chunking import (
     ChunkingConfig,
     FileChunkRequest,
     NaiveChunkingStrategy,
+    TSGoChunkingStrategy,
     TSJavaChunkingStrategy,
     TSJavaScriptChunkingStrategy,
     TSJSXChunkingStrategy,
     TSPyChunkingStrategy,
+    TSTypeScriptChunkingStrategy,
     get_language_registry,
 )
 
@@ -121,7 +131,9 @@ registry = get_language_registry()
 registry.register_strategy("python", TSPyChunkingStrategy())
 registry.register_strategy("javascript", TSJavaScriptChunkingStrategy())
 registry.register_strategy("jsx", TSJSXChunkingStrategy())
+registry.register_strategy("typescript", TSTypeScriptChunkingStrategy())
 registry.register_strategy("java", TSJavaChunkingStrategy())
+registry.register_strategy("go", TSGoChunkingStrategy())
 default_strategy = NaiveChunkingStrategy()
 config = ChunkingConfig()
 
@@ -143,6 +155,8 @@ For Python Tree-sitter strategy:
 - `tree-sitter-python`
 - `tree-sitter-javascript`
 - `tree-sitter-java`
+- `tree-sitter-typescript`
+- `tree-sitter-go`
 
 If these are unavailable, `TSPyChunkingStrategy` initialization will fail.  
 Use `NaiveChunkingStrategy` as the default fallback in your index orchestration.

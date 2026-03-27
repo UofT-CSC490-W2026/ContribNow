@@ -5,9 +5,11 @@ from unittest.mock import patch
 from src.pipeline.chunking import (
     ChunkingConfig,
     FileChunkRequest,
+    TSGoChunkingStrategy,
     TSJavaChunkingStrategy,
     TSJavaScriptChunkingStrategy,
     TSJSXChunkingStrategy,
+    TSTypeScriptChunkingStrategy,
 )
 
 
@@ -154,6 +156,109 @@ class TestTSCodeChunking(unittest.TestCase):
 
         self.assertEqual(len(chunks), 1)
         self.assertEqual(chunks[0].strategy, "ts_jsx")
+
+    def test_semantic_typescript_chunking(self) -> None:
+        content = (
+            "type User = { id: string }\n\n"
+            "interface Repository { getById(id: string): User }\n\n"
+            "class Service {}\n"
+        )
+        source = content.encode("utf-8")
+        interface_start = source.index(b"interface Repository")
+        class_start = source.index(b"class Service")
+
+        root = _FakeNode(
+            type="program",
+            start_byte=0,
+            end_byte=len(source),
+            children=[
+                _FakeNode(
+                    type="type_alias_declaration",
+                    start_byte=0,
+                    end_byte=interface_start,
+                ),
+                _FakeNode(
+                    type="interface_declaration",
+                    start_byte=interface_start,
+                    end_byte=class_start,
+                ),
+                _FakeNode(
+                    type="class_declaration",
+                    start_byte=class_start,
+                    end_byte=len(source),
+                ),
+            ],
+        )
+        parser = _FakeParser(root)
+
+        with patch.object(
+            TSTypeScriptChunkingStrategy, "_build_parser", return_value=parser
+        ):
+            strategy = TSTypeScriptChunkingStrategy()
+
+        chunks = strategy.chunk(
+            request=FileChunkRequest(
+                repo_slug="repo", file_path="src/service.ts", content=source
+            ),
+            language="typescript",
+            config=ChunkingConfig(max_bytes=85, overlap_bytes=12, min_split_bytes=25),
+        )
+
+        self.assertGreaterEqual(len(chunks), 2)
+        self.assertTrue(all(chunk.strategy == "ts_typescript" for chunk in chunks))
+        joined = b"\n".join(chunk.content for chunk in chunks).decode(
+            "utf-8", errors="replace"
+        )
+        self.assertIn("interface Repository", joined)
+        self.assertIn("class Service", joined)
+
+    def test_semantic_go_chunking(self) -> None:
+        content = (
+            "package service\n\n"
+            "type Repo struct {}\n\n"
+            "func NewRepo() Repo { return Repo{} }\n"
+        )
+        source = content.encode("utf-8")
+        type_start = source.index(b"type Repo")
+        func_start = source.index(b"func NewRepo")
+
+        root = _FakeNode(
+            type="source_file",
+            start_byte=0,
+            end_byte=len(source),
+            children=[
+                _FakeNode(type="package_clause", start_byte=0, end_byte=type_start),
+                _FakeNode(
+                    type="type_declaration",
+                    start_byte=type_start,
+                    end_byte=func_start,
+                ),
+                _FakeNode(
+                    type="function_declaration",
+                    start_byte=func_start,
+                    end_byte=len(source),
+                ),
+            ],
+        )
+        parser = _FakeParser(root)
+
+        with patch.object(TSGoChunkingStrategy, "_build_parser", return_value=parser):
+            strategy = TSGoChunkingStrategy()
+
+        chunks = strategy.chunk(
+            request=FileChunkRequest(
+                repo_slug="repo", file_path="src/repo.go", content=source
+            ),
+            language="go",
+            config=ChunkingConfig(max_bytes=80, overlap_bytes=10, min_split_bytes=20),
+        )
+
+        self.assertGreaterEqual(len(chunks), 1)
+        self.assertTrue(all(chunk.strategy == "ts_go" for chunk in chunks))
+        joined = b"\n".join(chunk.content for chunk in chunks).decode(
+            "utf-8", errors="replace"
+        )
+        self.assertIn("func NewRepo", joined)
 
     def test_rejects_language_mismatch(self) -> None:
         parser = _FakeParser(_FakeNode(type="program", start_byte=0, end_byte=1))
