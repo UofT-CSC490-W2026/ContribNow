@@ -6,6 +6,12 @@ CSC490 project by:
 - Maverick Luke
 - Razan Ahsan Rifandi
 
+## Test Coverage
+
+<!-- Pytest Coverage Comment:Begin -->
+Coverage report will appear here after CI runs.
+<!-- Pytest Coverage Comment:End -->
+
 ## ETL Quickstart
 
 Run from repo root with the helper script:
