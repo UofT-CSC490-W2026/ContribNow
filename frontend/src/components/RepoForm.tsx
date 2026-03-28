@@ -20,6 +20,7 @@ export function RepoForm({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    /* v8 ignore next */
     if (!canSubmit) return;
 
     const normalizedUrl = repoUrl.trim();

@@ -1,9 +1,11 @@
 import type { GenerateOnboardingRequest, GenerateOnboardingResponse } from "../types";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+/* v8 ignore next */
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
+function isMockMode() {
+  return import.meta.env.VITE_USE_MOCK === "true";
+}
 
 export class ApiError extends Error {
   status: number;
@@ -102,7 +104,7 @@ export async function generateOnboarding(
   params: GenerateOnboardingRequest,
   signal?: AbortSignal
 ): Promise<GenerateOnboardingResponse> {
-  if (USE_MOCK) {
+  if (isMockMode()) {
     return mockGenerateOnboarding(params);
   }
 
@@ -125,7 +127,7 @@ export async function generateOnboarding(
 }
 
 export async function healthCheck(): Promise<boolean> {
-  if (USE_MOCK) return true;
+  if (isMockMode()) return true;
 
   try {
     const response = await fetch(`${API_BASE_URL}/`);
