@@ -47,10 +47,11 @@ resource "aws_db_instance" "this" {
   backup_retention_period = var.backup_retention_period
   multi_az                = var.multi_az
   deletion_protection     = var.deletion_protection
-  skip_final_snapshot     = var.skip_final_snapshot 
+  skip_final_snapshot     = var.skip_final_snapshot
 
   tags = {
     Name        = "contribnow-${var.environment}-postgres"
     Environment = var.environment
   }
 }
+

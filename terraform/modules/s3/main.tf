@@ -3,7 +3,7 @@ resource "aws_s3_bucket" "this" {
   bucket = "${var.bucket_prefix}-${var.environment}"
 
   tags = {
-    Name        = "contribnow-${var.environment}-datalake"
+    Name        = "contribnow-${var.environment}-datalake-${var.bucket_prefix}"
     Environment = var.environment
   }
 }
@@ -56,3 +56,4 @@ resource "aws_s3_bucket_lifecycle_configuration" "lifecycle" {
     }
   }
 }
+
