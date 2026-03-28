@@ -166,5 +166,5 @@ def main() -> int:
     return 0 if success_count else 1
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())

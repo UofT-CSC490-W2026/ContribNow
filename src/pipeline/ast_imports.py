@@ -177,7 +177,7 @@ def extract_imports(file_path: str | Path) -> list[str]:
     except Exception:
         return []
 
-    return []
+    return []  # pragma: no cover — all supported languages dispatched above
 
 
 # ---------------------------------------------------------------------------
