@@ -76,12 +76,48 @@ class _BootstrapMangum:
         self.app = app
 
 
+class _BootstrapHTTPException(Exception):
+    def __init__(self, status_code: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+class _BootstrapFastAPI:
+    def __init__(self, lifespan=None) -> None:
+        self.lifespan = lifespan
+        self.routes: list[tuple[str, str, object]] = []
+
+    def get(self, path: str, **_: object):
+        def decorator(func):
+            self.routes.append(("GET", path, func))
+            return func
+
+        return decorator
+
+    def post(self, path: str, **_: object):
+        def decorator(func):
+            self.routes.append(("POST", path, func))
+            return func
+
+        return decorator
+
+
 sys.modules["boto3"] = _BootstrapBoto3("boto3")
 sys.modules["psycopg"] = _BootstrapPsycopg("psycopg")
 
 mangum_module = ModuleType("mangum")
 mangum_module.Mangum = _BootstrapMangum  # type: ignore[attr-defined]
 sys.modules["mangum"] = mangum_module
+
+dotenv_module = ModuleType("dotenv")
+dotenv_module.load_dotenv = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+sys.modules["dotenv"] = dotenv_module
+
+fastapi_module = ModuleType("fastapi")
+fastapi_module.FastAPI = _BootstrapFastAPI  # type: ignore[attr-defined]
+fastapi_module.HTTPException = _BootstrapHTTPException  # type: ignore[attr-defined]
+sys.modules["fastapi"] = fastapi_module
 
 
 REQUIRED_ENV = {
