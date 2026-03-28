@@ -206,7 +206,7 @@ def _build_commit_log(repo_dir: Path, max_count: int = COMMIT_LOG_LIMIT) -> list
         if len(parts) < 5:
             continue
         sha = parts[0].strip()
-        if not sha:
+        if not sha:  # pragma: no cover — \x1f is ASCII whitespace, so empty SHA collapses to <5 parts above
             continue
         sha_order.append(sha)
         meta_by_sha[sha] = {
@@ -312,5 +312,5 @@ def main() -> int:
     return 0 if successful else 1
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())

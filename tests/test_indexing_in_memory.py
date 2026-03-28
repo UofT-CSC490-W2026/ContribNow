@@ -96,5 +96,26 @@ class TestIndexingInMemory(unittest.TestCase):
             self.assertEqual(len(results), 0)
 
 
+class TestIterFilesAbsolutePath(unittest.TestCase):
+    """Test that absolute paths in manifest are rejected (indexer.py line 125)."""
+
+    def test_absolute_path_skipped(self) -> None:
+        import sys
+        from src.pipeline.indexing.indexer import _iter_files
+
+        with TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            (repo_root / "ok.py").write_text("x = 1", encoding="utf-8")
+            # Use platform-appropriate absolute path
+            abs_path = "C:/etc/passwd" if sys.platform == "win32" else "/etc/passwd"
+            manifest = {
+                "files": [abs_path, "ok.py"],
+            }
+            results = list(_iter_files(manifest, repo_root))
+            paths = [rel for rel, _ in results]
+            self.assertNotIn(abs_path, paths)
+            self.assertIn("ok.py", paths)
+
+
 if __name__ == "__main__":
     unittest.main()
