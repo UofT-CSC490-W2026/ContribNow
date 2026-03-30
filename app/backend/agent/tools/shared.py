@@ -95,11 +95,19 @@ BINARY_EXTENSIONS: set[str] = {
     ".wasm",
 }
 
-DEFAULT_REPO_ROOT = Path("/home/louis/programming/ContribNow")
+DATA_DIR = Path("data")
 
 
 def load_repo_roots() -> dict[str, Path]:
-    return {"default": DEFAULT_REPO_ROOT.resolve()}
+    """Build a map of repo_slug → cloned repo path from data/raw/."""
+    roots: dict[str, Path] = {}
+    raw_dir = DATA_DIR / "raw"
+    if raw_dir.exists():
+        for slug_dir in raw_dir.iterdir():
+            repo_checkout = slug_dir / "repo"
+            if slug_dir.is_dir() and repo_checkout.exists():
+                roots[slug_dir.name] = repo_checkout.resolve()
+    return roots
 
 
 def resolve_repo_path(repo_roots: dict[str, Path], repo_slug: str, path: str) -> Path:
