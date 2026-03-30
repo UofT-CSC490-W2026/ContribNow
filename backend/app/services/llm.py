@@ -10,7 +10,7 @@ def generate_document(prompt: str, repo_url: str) -> str:
 
     body = {
         "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 1200,
+        "max_tokens": 2200,
         "temperature": 0.2,
         "messages": [
             {

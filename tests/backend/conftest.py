@@ -67,13 +67,41 @@ class _BootstrapConnection:
 
 
 class _BootstrapPsycopg(ModuleType):
+    class Error(Exception):
+        pass
+
     def connect(self, **_: object) -> _BootstrapConnection:
         return _BootstrapConnection()
 
 
+class _BootstrapSQLModule:
+    @staticmethod
+    def SQL(query: str):
+        class _Query:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def format(self, **kwargs: object) -> str:
+                formatted = self.value
+                for key, value in kwargs.items():
+                    formatted = formatted.replace("{" + key + "}", str(value))
+                return formatted
+
+            def __str__(self) -> str:
+                return self.value
+
+        return _Query(query)
+
+    @staticmethod
+    def Identifier(value: str) -> str:
+        return value
+
+
 class _BootstrapMangum:
-    def __init__(self, app: object) -> None:
+    def __init__(self, app: object, *args: object, **kwargs: object) -> None:
         self.app = app
+        self.args = args
+        self.kwargs = kwargs
 
 
 class _BootstrapHTTPException(Exception):
@@ -102,9 +130,37 @@ class _BootstrapFastAPI:
 
         return decorator
 
+    def delete(self, path: str, **_: object):
+        def decorator(func):
+            self.routes.append(("DELETE", path, func))
+            return func
+
+        return decorator
+
 
 sys.modules["boto3"] = _BootstrapBoto3("boto3")
-sys.modules["psycopg"] = _BootstrapPsycopg("psycopg")
+
+botocore_module = ModuleType("botocore")
+botocore_exceptions_module = ModuleType("botocore.exceptions")
+
+
+class _BootstrapBotoCoreError(Exception):
+    pass
+
+
+class _BootstrapClientError(Exception):
+    pass
+
+
+botocore_exceptions_module.BotoCoreError = _BootstrapBotoCoreError  # type: ignore[attr-defined]
+botocore_exceptions_module.ClientError = _BootstrapClientError  # type: ignore[attr-defined]
+botocore_module.exceptions = botocore_exceptions_module  # type: ignore[attr-defined]
+sys.modules["botocore"] = botocore_module
+sys.modules["botocore.exceptions"] = botocore_exceptions_module
+
+psycopg_module = _BootstrapPsycopg("psycopg")
+psycopg_module.sql = _BootstrapSQLModule()  # type: ignore[attr-defined]
+sys.modules["psycopg"] = psycopg_module
 
 mangum_module = ModuleType("mangum")
 mangum_module.Mangum = _BootstrapMangum  # type: ignore[attr-defined]
@@ -117,6 +173,7 @@ sys.modules["dotenv"] = dotenv_module
 fastapi_module = ModuleType("fastapi")
 fastapi_module.FastAPI = _BootstrapFastAPI  # type: ignore[attr-defined]
 fastapi_module.HTTPException = _BootstrapHTTPException  # type: ignore[attr-defined]
+fastapi_module.Header = lambda default=..., **kwargs: default  # type: ignore[attr-defined]
 sys.modules["fastapi"] = fastapi_module
 
 

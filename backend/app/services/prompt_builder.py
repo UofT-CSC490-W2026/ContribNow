@@ -26,7 +26,10 @@ Rules:
 - Be concrete and practical.
 - Do not invent facts not supported by the context.
 - If information is missing, explicitly say it should be confirmed.
-- Keep the guide readable for a new team member.{user_request_section}
+- Keep the guide readable for a new team member.
+- Keep the full response concise enough to fit within the model output limit.
+- Aim for short paragraphs or 3-6 bullets per section, not exhaustive prose.
+- Prefer the most important commands, paths, and risks over long explanations.{user_request_section}
 
 Repository context:
 {context}

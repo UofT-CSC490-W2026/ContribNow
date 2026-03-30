@@ -42,9 +42,11 @@ class FakeConnection:
 def make_request(**overrides: object) -> SimpleNamespace:
     payload = {
         "repoUrl": "https://github.com/example/project",
+        "repoSlug": "example__project",
         "userPrompt": "Focus on setup",
-        "accessKey": "alpha",
         "forceRegenerate": False,
+        "repoSnapshot": None,
+        "onboardingSnapshot": None,
     }
     payload.update(overrides)
     return SimpleNamespace(**payload)
@@ -57,10 +59,18 @@ def test_root_and_handler(load_backend_module) -> None:
     assert main.handler.app is main.app
 
 
-def test_lifespan_calls_init_db(load_backend_module) -> None:
+def test_lifespan_initializes_datastores(load_backend_module) -> None:
     main = load_backend_module("app.main")
     calls: list[str] = []
-    main.init_db = lambda: calls.append("init")
+    store = object()
+    main.init_db_onboarding_doc = lambda: calls.append("onboarding")
+    main.init_db_chat_history = lambda: calls.append("chat")
+
+    def fake_init_pgvectorstore():
+        calls.append("pgvector")
+        return store
+
+    main.init_pgvectorstore = fake_init_pgvectorstore
 
     async def run_lifespan() -> None:
         async with main.lifespan(main.app):
@@ -68,7 +78,8 @@ def test_lifespan_calls_init_db(load_backend_module) -> None:
 
     asyncio.run(run_lifespan())
 
-    assert calls == ["init", "running"]
+    assert calls == ["onboarding", "chat", "pgvector", "running"]
+    assert main.pgvectorstore is store
 
 
 def test_debug_db_runs_query(load_backend_module) -> None:
@@ -88,7 +99,7 @@ def test_generate_onboarding_rejects_invalid_key(load_backend_module) -> None:
     request = make_request(accessKey="bad-key")
 
     with pytest.raises(main.HTTPException) as exc_info:
-        main.generate_onboarding(request)
+        main.generate_onboarding(request, x_access_key="bad-key")
 
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Invalid access key"
@@ -97,36 +108,33 @@ def test_generate_onboarding_rejects_invalid_key(load_backend_module) -> None:
 def test_generate_onboarding_returns_cached_document(load_backend_module) -> None:
     main = load_backend_module("app.main")
     main.verify_key = lambda access_key: True
-    main.get_cached_document = lambda repo_url: {
-        "storageKey": "outputs/repo/v2.md",
-        "version": 2,
-    }
-    main.load_document = lambda storage_key: "# Cached guide"
+    main.load_object_from_s3 = lambda object_key: "# Cached guide"
 
-    response = main.generate_onboarding(make_request())
+    response = main.generate_onboarding(
+        make_request(repoSnapshot={"repo_slug": "example__project"}),
+        x_access_key="alpha",
+    )
 
     assert response.success is True
     assert response.document == "# Cached guide"
-    assert response.storageKey == "outputs/repo/v2.md"
+    assert response.storageKey == "onboarding_docs/alpha/example__project.md"
     assert response.fromCache is True
-    assert response.version == 2
 
 
 def test_generate_onboarding_cached_load_failure_returns_http_500(load_backend_module) -> None:
     main = load_backend_module("app.main")
     main.verify_key = lambda access_key: True
-    main.get_cached_document = lambda repo_url: {
-        "storageKey": "outputs/repo/v2.md",
-        "version": 2,
-    }
 
-    def fail_load(storage_key: str) -> str:
+    def fail_load(object_key: str) -> str:
         raise RuntimeError("s3 unavailable")
 
-    main.load_document = fail_load
+    main.load_object_from_s3 = fail_load
 
     with pytest.raises(main.HTTPException) as exc_info:
-        main.generate_onboarding(make_request())
+        main.generate_onboarding(
+            make_request(repoSnapshot={"repo_slug": "example__project"}),
+            x_access_key="alpha",
+        )
 
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "Failed to load cached document"
@@ -135,75 +143,87 @@ def test_generate_onboarding_cached_load_failure_returns_http_500(load_backend_m
 def test_generate_onboarding_generates_and_saves_document(load_backend_module) -> None:
     main = load_backend_module("app.main")
     saved_calls: dict[str, object] = {}
-    cached_calls: dict[str, object] = {}
+    repo_calls: list[tuple[str, str]] = []
     main.verify_key = lambda access_key: True
-    main.get_cached_document = lambda repo_url: {
-        "storageKey": "outputs/repo/v1.md",
-        "version": 1,
-    }
-    main.retrieve_context = lambda repo_url: f"context for {repo_url}"
+    main.load_object_from_s3 = lambda object_key: None
+    main.retrieve_context = (
+        lambda repo_url, repo_snapshot=None, onboarding_snapshot=None:
+        f"context for {repo_url}::{repo_snapshot}::{onboarding_snapshot}"
+    )
     main.build_prompt = lambda user_prompt, context: f"prompt::{user_prompt}::{context}"
     main.generate_document = lambda prompt, repo_url: "# Fresh guide"
-    main.get_repo_id = lambda repo_url: "repo-id"
-    main.get_next_version = lambda repo_url: 2
 
-    def save_document(*, document: str, repo_id: str, version: int) -> str:
+    def save_object_to_s3(object_key: str, obj: str) -> bool:
         saved_calls.update(
             {
-                "document": document,
-                "repo_id": repo_id,
-                "version": version,
+                "object_key": object_key,
+                "obj": obj,
             }
         )
-        return "outputs/repo-id/v2.md"
+        return True
 
-    def save_cached_document(*, repo_url: str, storage_key: str, version: int) -> dict[str, object]:
-        cached_calls.update(
-            {
-                "repo_url": repo_url,
-                "storage_key": storage_key,
-                "version": version,
-            }
-        )
-        return {
-            "storageKey": storage_key,
-            "version": version,
-        }
+    def save_onboarding_doc_repo(access_key: str, repo_slug: str) -> bool:
+        repo_calls.append((access_key, repo_slug))
+        return True
 
-    main.save_document = save_document
-    main.save_cached_document = save_cached_document
+    main.save_object_to_s3 = save_object_to_s3
+    main.save_onboarding_doc_repo = save_onboarding_doc_repo
 
-    response = main.generate_onboarding(make_request(forceRegenerate=True))
+    snapshot = {
+        "repo_slug": "example__project",
+        "files": ["README.md", "backend/app/main.py"],
+        "selected_file_contents": [{"path": "README.md", "content": "# Project"}],
+    }
+    onboarding_snapshot = {
+        "repo_slug": "example__project",
+        "structure_summary": {"total_files": 2},
+    }
+    response = main.generate_onboarding(
+        make_request(
+            forceRegenerate=True,
+            repoSnapshot=snapshot,
+            onboardingSnapshot=onboarding_snapshot,
+        ),
+        x_access_key="alpha",
+    )
 
     assert response.success is True
     assert response.document == "# Fresh guide"
-    assert response.storageKey == "outputs/repo-id/v2.md"
+    assert response.storageKey == "onboarding_docs/alpha/example__project.md"
     assert response.fromCache is False
-    assert response.version == 2
     assert saved_calls == {
-        "document": "# Fresh guide",
-        "repo_id": "repo-id",
-        "version": 2,
+        "object_key": "onboarding_docs/alpha/example__project.md",
+        "obj": "# Fresh guide",
     }
-    assert cached_calls == {
-        "repo_url": "https://github.com/example/project",
-        "storage_key": "outputs/repo-id/v2.md",
-        "version": 2,
-    }
+    assert repo_calls == [("alpha", "example__project")]
+
+
+def test_generate_onboarding_requires_repo_slug(load_backend_module) -> None:
+    main = load_backend_module("app.main")
+    main.verify_key = lambda access_key: True
+
+    with pytest.raises(main.HTTPException) as exc_info:
+        main.generate_onboarding(make_request(repoSlug=""), x_access_key="alpha")
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "repoSlug is required in the request body"
 
 
 def test_generate_onboarding_generation_failure_returns_http_500(load_backend_module) -> None:
     main = load_backend_module("app.main")
     main.verify_key = lambda access_key: True
-    main.get_cached_document = lambda repo_url: None
+    main.load_object_from_s3 = lambda object_key: None
 
-    def fail_generation(repo_url: str) -> str:
+    def fail_generation(repo_url: str, repo_snapshot=None, onboarding_snapshot=None) -> str:
         raise RuntimeError("rag unavailable")
 
     main.retrieve_context = fail_generation
 
     with pytest.raises(main.HTTPException) as exc_info:
-        main.generate_onboarding(make_request())
+        main.generate_onboarding(
+            make_request(repoSnapshot={"repo_slug": "example__project"}),
+            x_access_key="alpha",
+        )
 
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "Generation failed"

@@ -1,0 +1,1 @@
+ONBOARDING_DOC_PATH = "onboarding_docs"
