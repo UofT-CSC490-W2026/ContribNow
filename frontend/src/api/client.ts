@@ -1,4 +1,28 @@
-import type { GenerateOnboardingRequest, GenerateOnboardingResponse } from "../types";
+import type {
+  AnalyzeRequest,
+  AnalyzeResponse,
+  AskRequest,
+  AskResponse,
+  CoChangePair,
+  Conventions,
+  DependencyGraph,
+  FileAuthorship,
+  GenerateOnboardingRequest,
+  GenerateOnboardingResponse,
+  Hotspot,
+  RiskLevel,
+} from "../types";
+import {
+  MOCK_DOCUMENT,
+  MOCK_AUTHORSHIP,
+  MOCK_CO_CHANGES,
+  MOCK_CONVENTIONS,
+  MOCK_DEPENDENCIES,
+  MOCK_HOTSPOTS,
+  MOCK_RISK_LEVELS,
+  mockAnalyze,
+  mockAsk,
+} from "./mock-data";
 
 /* v8 ignore next */
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
@@ -17,71 +41,19 @@ export class ApiError extends Error {
   }
 }
 
-const MOCK_DOCUMENT = `# Onboarding Guide: pallets/markupsafe
+async function parseErrorResponse(response: Response): Promise<ApiError> {
+  const errorBody = await response.json().catch(() => ({}));
+  return new ApiError(
+    response.status,
+    (errorBody as { detail?: string }).detail || "Request failed"
+  );
+}
 
-## 1. Project Overview
-MarkupSafe is a Python library that implements a text object that escapes characters for safe use in HTML and XML. It is widely used as a dependency by Jinja2, Flask, and many other projects in the Python ecosystem.
-
-**Primary Language:** Python
-**License:** BSD-3-Clause
-**Stars:** 650+
-
-## 2. Tech Stack
-- **Language:** Python 3.8+
-- **Build System:** setuptools with \`pyproject.toml\`
-- **Testing:** pytest
-- **CI/CD:** GitHub Actions
-- **Documentation:** Sphinx + ReadTheDocs
-
-## 3. Repository Structure
-| Path | Purpose |
-|------|---------|
-| \`src/markupsafe/\` | Core library code |
-| \`src/markupsafe/_speedups.c\` | C extension for performance |
-| \`tests/\` | Test suite |
-| \`docs/\` | Sphinx documentation |
-| \`pyproject.toml\` | Project metadata and build config |
-
-## 4. Setup Instructions
-\`\`\`bash
-git clone https://github.com/pallets/markupsafe.git
-cd markupsafe
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-\`\`\`
-
-## 5. How to Run Locally
-\`\`\`bash
-# Run the test suite
-pytest
-
-# Build documentation
-cd docs && make html
-\`\`\`
-
-## 6. Development Workflow
-1. Fork the repository and create a feature branch
-2. Make changes and add tests
-3. Run \`pytest\` to ensure all tests pass
-4. Submit a pull request against the \`main\` branch
-5. Maintainers will review and provide feedback
-
-## 7. First Contribution Tips
-- **Good first issues:** Look for issues labeled \`good first issue\`
-- **Hot files:** \`src/markupsafe/__init__.py\` has the most activity (12 contributors, 45 commits)
-- **Risk areas:** \`_speedups.c\` is high-risk — changes here need careful review
-- **Co-changed files:** \`__init__.py\` and \`_speedups.c\` are often modified together
-
-## 8. Known Gaps / Things to Confirm
-- Check if the C extension build works on your platform
-- Confirm Python version compatibility for your environment
-`;
+// ── Legacy — removed in Layer 3 ─────────────────────────────────────────────
 
 async function mockGenerateOnboarding(
   params: GenerateOnboardingRequest
 ): Promise<GenerateOnboardingResponse> {
-  // Simulate network + LLM generation delay
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
   if (params.accessKey !== "test") {
@@ -94,7 +66,7 @@ async function mockGenerateOnboarding(
       "pallets/markupsafe",
       new URL(params.repoUrl).pathname.slice(1)
     ),
-    storageKey: `outputs/mock-repo-id/v1.md`,
+    storageKey: "outputs/mock-repo-id/v1.md",
     fromCache: params.forceRegenerate ? false : Math.random() > 0.5,
     version: 1,
   };
@@ -116,13 +88,86 @@ export async function generateOnboarding(
   });
 
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({}));
-    throw new ApiError(
-      response.status,
-      errorBody.detail || "Request failed"
-    );
+    throw await parseErrorResponse(response);
   }
 
+  return response.json();
+}
+
+// ── New API functions ─────────────────────────────────────────────────────────
+
+export async function analyze(
+  params: AnalyzeRequest,
+  signal?: AbortSignal
+): Promise<AnalyzeResponse> {
+  if (isMockMode()) {
+    if (params.accessKey !== "test") throw new ApiError(401, "Invalid access key");
+    return mockAnalyze(params);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+    signal,
+  });
+
+  if (!response.ok) throw await parseErrorResponse(response);
+  return response.json();
+}
+
+export async function getHotspots(runId: string): Promise<Hotspot[]> {
+  if (isMockMode()) return MOCK_HOTSPOTS;
+  const response = await fetch(`${API_BASE_URL}/snapshot/${runId}/hotspots`);
+  if (!response.ok) throw await parseErrorResponse(response);
+  return response.json();
+}
+
+export async function getRiskLevels(runId: string): Promise<RiskLevel[]> {
+  if (isMockMode()) return MOCK_RISK_LEVELS;
+  const response = await fetch(`${API_BASE_URL}/snapshot/${runId}/risk-levels`);
+  if (!response.ok) throw await parseErrorResponse(response);
+  return response.json();
+}
+
+export async function getConventions(runId: string): Promise<Conventions> {
+  if (isMockMode()) return MOCK_CONVENTIONS;
+  const response = await fetch(`${API_BASE_URL}/snapshot/${runId}/conventions`);
+  if (!response.ok) throw await parseErrorResponse(response);
+  return response.json();
+}
+
+export async function getAuthorship(runId: string): Promise<FileAuthorship[]> {
+  if (isMockMode()) return MOCK_AUTHORSHIP;
+  const response = await fetch(`${API_BASE_URL}/snapshot/${runId}/authorship`);
+  if (!response.ok) throw await parseErrorResponse(response);
+  return response.json();
+}
+
+export async function getCoChanges(runId: string): Promise<CoChangePair[]> {
+  if (isMockMode()) return MOCK_CO_CHANGES;
+  const response = await fetch(`${API_BASE_URL}/snapshot/${runId}/co-changes`);
+  if (!response.ok) throw await parseErrorResponse(response);
+  return response.json();
+}
+
+export async function getDependencies(runId: string): Promise<DependencyGraph> {
+  if (isMockMode()) return MOCK_DEPENDENCIES;
+  const response = await fetch(`${API_BASE_URL}/snapshot/${runId}/dependencies`);
+  if (!response.ok) throw await parseErrorResponse(response);
+  return response.json();
+}
+
+export async function ask(params: AskRequest): Promise<AskResponse> {
+  if (isMockMode()) return mockAsk(params);
+
+  const response = await fetch(`${API_BASE_URL}/ask`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+
+  if (!response.ok) throw await parseErrorResponse(response);
   return response.json();
 }
 
@@ -130,7 +175,7 @@ export async function healthCheck(): Promise<boolean> {
   if (isMockMode()) return true;
 
   try {
-    const response = await fetch(`${API_BASE_URL}/`);
+    const response = await fetch(`${API_BASE_URL}/health`);
     return response.ok;
   } catch {
     return false;
