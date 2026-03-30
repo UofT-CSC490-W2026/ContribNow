@@ -8,7 +8,9 @@ from pydantic import BaseModel
 class AnalyzeRequest(BaseModel):
     repoUrl: str
     accessKey: str
-    taskType: Optional[Literal["fix_bug", "add_feature", "update_docs", "understand", "other"]] = None
+    taskType: Optional[
+        Literal["fix_bug", "add_feature", "update_docs", "understand", "other"]
+    ] = None
     taskDescription: Optional[str] = None
 
 
@@ -21,6 +23,7 @@ class AnalyzeResponse(BaseModel):
 
 class AskRequest(BaseModel):
     runId: str
+    repoSlug: str
     question: str
     conversationHistory: Optional[List[dict]] = None
 
