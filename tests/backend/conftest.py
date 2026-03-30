@@ -139,6 +139,25 @@ class _BootstrapFastAPI:
 
 
 sys.modules["boto3"] = _BootstrapBoto3("boto3")
+
+botocore_module = ModuleType("botocore")
+botocore_exceptions_module = ModuleType("botocore.exceptions")
+
+
+class _BootstrapBotoCoreError(Exception):
+    pass
+
+
+class _BootstrapClientError(Exception):
+    pass
+
+
+botocore_exceptions_module.BotoCoreError = _BootstrapBotoCoreError  # type: ignore[attr-defined]
+botocore_exceptions_module.ClientError = _BootstrapClientError  # type: ignore[attr-defined]
+botocore_module.exceptions = botocore_exceptions_module  # type: ignore[attr-defined]
+sys.modules["botocore"] = botocore_module
+sys.modules["botocore.exceptions"] = botocore_exceptions_module
+
 psycopg_module = _BootstrapPsycopg("psycopg")
 psycopg_module.sql = _BootstrapSQLModule()  # type: ignore[attr-defined]
 sys.modules["psycopg"] = psycopg_module

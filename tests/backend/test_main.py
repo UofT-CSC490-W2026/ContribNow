@@ -42,6 +42,7 @@ class FakeConnection:
 def make_request(**overrides: object) -> SimpleNamespace:
     payload = {
         "repoUrl": "https://github.com/example/project",
+        "repoSlug": "example__project",
         "userPrompt": "Focus on setup",
         "forceRegenerate": False,
         "repoSnapshot": None,
@@ -118,7 +119,6 @@ def test_generate_onboarding_returns_cached_document(load_backend_module) -> Non
     assert response.document == "# Cached guide"
     assert response.storageKey == "onboarding_docs/alpha/example__project.md"
     assert response.fromCache is True
-    assert response.version is None
 
 
 def test_generate_onboarding_cached_load_failure_returns_http_500(load_backend_module) -> None:
@@ -191,7 +191,6 @@ def test_generate_onboarding_generates_and_saves_document(load_backend_module) -
     assert response.document == "# Fresh guide"
     assert response.storageKey == "onboarding_docs/alpha/example__project.md"
     assert response.fromCache is False
-    assert response.version is None
     assert saved_calls == {
         "object_key": "onboarding_docs/alpha/example__project.md",
         "obj": "# Fresh guide",
@@ -204,10 +203,10 @@ def test_generate_onboarding_requires_repo_slug(load_backend_module) -> None:
     main.verify_key = lambda access_key: True
 
     with pytest.raises(main.HTTPException) as exc_info:
-        main.generate_onboarding(make_request(), x_access_key="alpha")
+        main.generate_onboarding(make_request(repoSlug=""), x_access_key="alpha")
 
     assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "repo_slug is required in repoSnapshot or onboardingSnapshot"
+    assert exc_info.value.detail == "repoSlug is required in the request body"
 
 
 def test_generate_onboarding_generation_failure_returns_http_500(load_backend_module) -> None:

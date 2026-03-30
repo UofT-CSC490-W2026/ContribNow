@@ -85,6 +85,7 @@ def test_models_validate_fields(load_backend_module) -> None:
 
     request = models.GenerateOnboardingRequest(
         repoUrl="https://github.com/example/project",
+        repoSlug="example__project",
         userPrompt="Focus on setup",
         repoSnapshot={
             "repo_slug": "example__project",
@@ -112,7 +113,6 @@ def test_models_validate_fields(load_backend_module) -> None:
         document="# Guide",
         storageKey="outputs/repo/v1.md",
         fromCache=False,
-        version=1,
     )
 
     assert str(request.repoUrl) == "https://github.com/example/project"
