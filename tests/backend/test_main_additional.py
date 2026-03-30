@@ -301,48 +301,61 @@ def test_onboarding_doc_routes_cover_all_branches(load_backend_module) -> None:
 def test_chat_history_routes_cover_all_branches(load_backend_module) -> None:
     main = load_backend_module("app.main")
     models = load_backend_module("app.models")
-    chat = models.ChatMessage(role="user", message="Hello")
+    request = models.SaveChatRequest(repo_slug="example__project", role="user", message="Hello")
+    blank_request = models.SaveChatRequest(repo_slug="", role="user", message="Hello")
 
     main.verify_key = lambda access_key: False
     with pytest.raises(main.HTTPException) as save_auth_exc:
-        main.save_chat(chat, x_access_key="bad")
+        main.save_chat(request, x_access_key="bad")
     assert save_auth_exc.value.status_code == 401
 
     with pytest.raises(main.HTTPException) as load_auth_exc:
-        main.load_chat_history(x_access_key="bad")
+        main.load_chat_history("example__project", x_access_key="bad")
     assert load_auth_exc.value.status_code == 401
 
     with pytest.raises(main.HTTPException) as delete_auth_exc:
-        main.delete_chat_history(x_access_key="bad")
+        main.delete_chat_history("example__project", x_access_key="bad")
     assert delete_auth_exc.value.status_code == 401
 
     main.verify_key = lambda access_key: True
-    main.save_chat_to_rds = lambda access_key, payload: False
+    with pytest.raises(main.HTTPException) as save_repo_exc:
+        main.save_chat(blank_request, x_access_key="alpha")
+    assert save_repo_exc.value.status_code == 400
+
+    main.save_chat_to_rds = lambda access_key, repo_slug, payload: False
     with pytest.raises(main.HTTPException) as save_fail_exc:
-        main.save_chat(chat, x_access_key="alpha")
+        main.save_chat(request, x_access_key="alpha")
     assert save_fail_exc.value.status_code == 500
 
-    main.save_chat_to_rds = lambda access_key, payload: True
-    assert main.save_chat(chat, x_access_key="alpha") == {
+    main.save_chat_to_rds = lambda access_key, repo_slug, payload: repo_slug == "example__project" and payload.message == "Hello"
+    assert main.save_chat(request, x_access_key="alpha") == {
         "message": "Chat history saved successfully"
     }
 
-    main.load_chat_history_from_rds = lambda access_key: [{"role": "user", "message": "Hello", "created_at": "2026-03-30T12:00:00"}]
-    assert main.load_chat_history(x_access_key="alpha") == {
+    with pytest.raises(main.HTTPException) as load_repo_exc:
+        main.load_chat_history("", x_access_key="alpha")
+    assert load_repo_exc.value.status_code == 400
+
+    main.load_chat_history_from_rds = lambda access_key, repo_slug: [{"role": "user", "message": "Hello", "created_at": "2026-03-30T12:00:00"}]
+    assert main.load_chat_history("example__project", x_access_key="alpha") == {
         "history": [{"role": "user", "message": "Hello", "created_at": "2026-03-30T12:00:00"}]
     }
 
-    main.delete_chat_history_from_rds = lambda access_key: -1
+    with pytest.raises(main.HTTPException) as delete_repo_exc:
+        main.delete_chat_history("", x_access_key="alpha")
+    assert delete_repo_exc.value.status_code == 400
+
+    main.delete_chat_history_from_rds = lambda access_key, repo_slug: -1
     with pytest.raises(main.HTTPException) as delete_fail_exc:
-        main.delete_chat_history(x_access_key="alpha")
+        main.delete_chat_history("example__project", x_access_key="alpha")
     assert delete_fail_exc.value.status_code == 500
 
-    main.delete_chat_history_from_rds = lambda access_key: 0
+    main.delete_chat_history_from_rds = lambda access_key, repo_slug: 0
     with pytest.raises(main.HTTPException) as delete_missing_exc:
-        main.delete_chat_history(x_access_key="alpha")
+        main.delete_chat_history("example__project", x_access_key="alpha")
     assert delete_missing_exc.value.status_code == 404
 
-    main.delete_chat_history_from_rds = lambda access_key: 2
-    assert main.delete_chat_history(x_access_key="alpha") == {
+    main.delete_chat_history_from_rds = lambda access_key, repo_slug: 2
+    assert main.delete_chat_history("example__project", x_access_key="alpha") == {
         "message": "Chat history deleted successfully, 2 records removed"
     }

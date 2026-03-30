@@ -129,6 +129,13 @@ def test_models_validate_fields(load_backend_module) -> None:
             repoUrl="not-a-url",
         )
 
+    save_chat = models.SaveChatRequest(
+        repo_slug="example__project",
+        role="user",
+        message="Hello",
+    )
+    assert save_chat.repo_slug == "example__project"
+
 
 def test_auth_verify_key(load_backend_module) -> None:
     auth = load_backend_module("app.services.auth")
@@ -257,7 +264,8 @@ def test_init_db_chat_history_executes_query_and_commits(load_backend_module) ->
 
     assert len(cursor.executed) == 1
     assert "CREATE TABLE IF NOT EXISTS chat_history" in cursor.executed[0][0]
-    assert "CREATE INDEX IF NOT EXISTS idx_chat_history_access_key_created_at" in cursor.executed[0][0]
+    assert "repo_slug TEXT NOT NULL" in cursor.executed[0][0]
+    assert "CREATE INDEX IF NOT EXISTS idx_chat_history_access_key_repo_slug_created_at" in cursor.executed[0][0]
     assert connection.commits == 1
 
 

@@ -240,17 +240,17 @@ def test_rds_helpers_cover_success_and_error_paths(load_backend_module) -> None:
     save_chat_cursor = RecordingCursor()
     save_chat_conn = make_connection(save_chat_cursor)
     rds.get_connection = lambda: save_chat_conn
-    assert rds.save_chat_to_rds("alpha", chat) is True
-    assert save_chat_cursor.executed[0][1] == ("alpha", "agent", "Hi there")
+    assert rds.save_chat_to_rds("alpha", "example__project", chat) is True
+    assert save_chat_cursor.executed[0][1] == ("alpha", "example__project", "agent", "Hi there")
     assert save_chat_conn.commits == 1
 
     rds.get_connection = lambda: (_ for _ in ()).throw(rds.Error("chat save boom"))
-    assert rds.save_chat_to_rds("alpha", chat) is False
+    assert rds.save_chat_to_rds("alpha", "example__project", chat) is False
 
     created_at = datetime(2026, 3, 30, 12, 0, tzinfo=timezone.utc)
     history_cursor = RecordingCursor(rows=[("user", "Hello", created_at)])
     rds.get_connection = lambda: make_connection(history_cursor)
-    assert rds.load_chat_history_from_rds("alpha") == [
+    assert rds.load_chat_history_from_rds("alpha", "example__project") == [
         {
             "role": "user",
             "message": "Hello",
@@ -259,16 +259,16 @@ def test_rds_helpers_cover_success_and_error_paths(load_backend_module) -> None:
     ]
 
     rds.get_connection = lambda: (_ for _ in ()).throw(rds.Error("chat load boom"))
-    assert rds.load_chat_history_from_rds("alpha") == []
+    assert rds.load_chat_history_from_rds("alpha", "example__project") == []
 
     delete_chat_cursor = RecordingCursor(rowcount=4)
     delete_chat_conn = make_connection(delete_chat_cursor)
     rds.get_connection = lambda: delete_chat_conn
-    assert rds.delete_chat_history_from_rds("alpha") == 4
+    assert rds.delete_chat_history_from_rds("alpha", "example__project") == 4
     assert delete_chat_conn.commits == 1
 
     rds.get_connection = lambda: (_ for _ in ()).throw(rds.Error("chat delete boom"))
-    assert rds.delete_chat_history_from_rds("alpha") == -1
+    assert rds.delete_chat_history_from_rds("alpha", "example__project") == -1
     assert len(logged) == 6
 
 

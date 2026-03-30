@@ -17,6 +17,7 @@ from app.models import (
     SearchResultAPI,
     VectorQueryResponse,
     SaveOnboardingDocRequest,
+    SaveChatRequest,
     ChatMessage,
 )
 from app.constants import *
@@ -371,46 +372,61 @@ def delete_onboarding_doc(
 
 @app.post("/chat-history/save")
 def save_chat(
-    chat: ChatMessage,
+    request: SaveChatRequest,
     x_access_key: str = Header(..., alias="X-Access-Key"),
 ) -> dict[str, str]:
     if not verify_key(x_access_key):
         raise HTTPException(status_code=401, detail="Invalid access key")
     
     accessKey = x_access_key
-    if not save_chat_to_rds(accessKey, chat):
-        raise HTTPException(status_code=500, detail="Failed to save chat history to RDS")
+    repo_slug = request.repo_slug
+    if not repo_slug:
+        raise HTTPException(status_code=400, detail="repo_slug is required in the request body")
+
+    chat = ChatMessage(
+        role=request.role,
+        message=request.message,
+        created_at=request.created_at,
+    )
+    if not save_chat_to_rds(accessKey, repo_slug, chat):
+        raise HTTPException(status_code=500, detail=f"Failed to save chat history to RDS for repo '{repo_slug}'")
     
     return {"message": "Chat history saved successfully"}
 
 
 @app.get("/chat-history/load")
 def load_chat_history(
+    repo_slug: str,
     x_access_key: str = Header(..., alias="X-Access-Key"),
 ) -> dict[str, Any]:
     if not verify_key(x_access_key):
         raise HTTPException(status_code=401, detail="Invalid access key")
     
     accessKey = x_access_key
-    result = load_chat_history_from_rds(accessKey)
+    if not repo_slug:
+        raise HTTPException(status_code=400, detail="repo_slug is required")
+    result = load_chat_history_from_rds(accessKey, repo_slug)
     
     return {"history": result}
 
 
 @app.delete("/chat-history/delete")
 def delete_chat_history(
+    repo_slug: str,
     x_access_key: str = Header(..., alias="X-Access-Key"),
 ) -> dict[str, str]:
     if not verify_key(x_access_key):
         raise HTTPException(status_code=401, detail="Invalid access key")
     
     accessKey = x_access_key
-    deleted_cnt = delete_chat_history_from_rds(accessKey)
+    if not repo_slug:
+        raise HTTPException(status_code=400, detail="repo_slug is required")
+    deleted_cnt = delete_chat_history_from_rds(accessKey, repo_slug)
 
     if deleted_cnt == -1:
-        raise HTTPException(status_code=500, detail="Failed to delete chat history from RDS")
+        raise HTTPException(status_code=500, detail=f"Failed to delete chat history from RDS for repo '{repo_slug}'")
     if deleted_cnt == 0:
-        raise HTTPException(status_code=404, detail="No chat history found to delete")    
+        raise HTTPException(status_code=404, detail=f"No chat history found to delete for repo '{repo_slug}'")    
     
     return {"message": f"Chat history deleted successfully, {deleted_cnt} records removed"}
 

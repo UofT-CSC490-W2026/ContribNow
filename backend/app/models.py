@@ -110,3 +110,10 @@ class ChatMessage(BaseModel):
     role: Literal["user", "agent"]
     message: str
     created_at: str | None = None
+
+
+class SaveChatRequest(BaseModel):
+    repo_slug: str
+    role: Literal["user", "agent"]
+    message: str
+    created_at: str | None = None

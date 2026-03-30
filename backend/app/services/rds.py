@@ -176,11 +176,12 @@ def delete_onboarding_doc_repo(access_key: str, repo_slug: str) -> int:
 
 def save_chat_to_rds(
     access_key: str,
+    repo_slug: str,
     chat: ChatMessage,
 ) -> bool:
     query = """
-    INSERT INTO chat_history (access_key, role, message)
-    VALUES (%s, %s, %s)
+    INSERT INTO chat_history (access_key, repo_slug, role, message)
+    VALUES (%s, %s, %s, %s)
     """
 
     try:
@@ -188,28 +189,30 @@ def save_chat_to_rds(
             with conn.cursor() as cur:
                 cur.execute(
                     query,
-                    (access_key, chat.role, chat.message),
+                    (access_key, repo_slug, chat.role, chat.message),
                 )
             conn.commit()
         return True
 
     except Error as e:
-        logger.error(f"Failed to save chat history to RDS with access_key = {access_key}: {str(e)}")
+        logger.error(
+            f"Failed to save chat history to RDS with access_key = {access_key}, repo_slug = {repo_slug}: {str(e)}"
+        )
         return False
 
 
-def load_chat_history_from_rds(access_key: str) -> list[ChatMessage]:
+def load_chat_history_from_rds(access_key: str, repo_slug: str) -> list[ChatMessage]:
     query = """
     SELECT role, message, created_at
     FROM chat_history
-    WHERE access_key = %s
+    WHERE access_key = %s AND repo_slug = %s
     ORDER BY created_at ASC, id ASC
     """
 
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(query, (access_key,))
+                cur.execute(query, (access_key, repo_slug))
                 rows = cur.fetchall()
 
         return cast(list[ChatMessage], [
@@ -223,24 +226,28 @@ def load_chat_history_from_rds(access_key: str) -> list[ChatMessage]:
         )
 
     except Error as e:
-        logger.error(f"Failed to load chat history from RDS with access_key = {access_key}: {str(e)}")
+        logger.error(
+            f"Failed to load chat history from RDS with access_key = {access_key}, repo_slug = {repo_slug}: {str(e)}"
+        )
         return []
 
 
-def delete_chat_history_from_rds(access_key: str) -> int:
+def delete_chat_history_from_rds(access_key: str, repo_slug: str) -> int:
     query = """
     DELETE FROM chat_history
-    WHERE access_key = %s
+    WHERE access_key = %s AND repo_slug = %s
     """
 
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(query, (access_key,))
+                cur.execute(query, (access_key, repo_slug))
                 deleted_cnt = cur.rowcount
             conn.commit()
         return deleted_cnt
 
     except Error as e:
-        logger.error(f"Failed to delete chat history from RDS with access_key = {access_key}: {str(e)}")
+        logger.error(
+            f"Failed to delete chat history from RDS with access_key = {access_key}, repo_slug = {repo_slug}: {str(e)}"
+        )
         return -1

@@ -109,6 +109,8 @@ Important onboarding models:
 - `RepoSnapshot`
 - `OnboardingSnapshot`
 - `RepoFileContent`
+- `SaveChatRequest`
+- `ChatMessage`
 
 ### `GenerateOnboardingRequest`
 
@@ -147,6 +149,25 @@ Used for pipeline-derived enriched metadata:
 - `conventions`
 - `transform_metadata`
 - `load_metadata`
+
+### `SaveChatRequest`
+
+Used by `POST /chat-history/save`.
+
+Fields:
+
+- `repo_slug`
+- `role`
+- `message`
+- `created_at`
+
+### `ChatMessage`
+
+Used for persisted and returned chat entries:
+
+- `role`
+- `message`
+- `created_at`
 
 ## Request Flow: Onboarding Generation
 
@@ -308,7 +329,9 @@ Used by:
 - `/chat-history/load`
 - `/chat-history/delete`
 
-Messages are stored in append-only style with timestamps and loaded in chronological order.
+Messages are stored and queried by the composite key `(access_key, repo_slug)`.
+
+Within each repo, messages are append-only and loaded in chronological order.
 
 ## PostgreSQL / pgvector
 
@@ -429,6 +452,7 @@ Common patterns:
 
 - `401` for invalid access key
 - `400` for invalid onboarding generation input such as missing `repoSlug`
+- `400` for invalid chat-history input such as missing `repo_slug`
 - `500` for generation, S3, RDS, or vector-store failures
 
 Most service helpers log the underlying exception and return a boolean or structured error, while the route layer converts that into an `HTTPException`.

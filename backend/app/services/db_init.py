@@ -26,13 +26,14 @@ def init_db_chat_history() -> None:
     CREATE TABLE IF NOT EXISTS chat_history (
         id BIGSERIAL PRIMARY KEY,
         access_key TEXT NOT NULL,
+        repo_slug TEXT NOT NULL,
         role TEXT NOT NULL,
         message TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
-    CREATE INDEX IF NOT EXISTS idx_chat_history_access_key_created_at
-    ON chat_history (access_key, created_at);
+    CREATE INDEX IF NOT EXISTS idx_chat_history_access_key_repo_slug_created_at
+    ON chat_history (access_key, repo_slug, created_at);
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
