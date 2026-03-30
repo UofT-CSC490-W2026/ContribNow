@@ -11,17 +11,21 @@
 from pathlib import Path
 
 HERE = Path(SPECPATH)  # resolves to app/
+REPO_ROOT = HERE.parent
 FRONTEND_DIST = HERE / "frontend_dist"
+PIPELINE_SRC = REPO_ROOT / "src" / "pipeline"
 
 block_cipher = None
 
 a = Analysis(
     [str(HERE / "launcher.py")],
-    pathex=[str(HERE)],
+    pathex=[str(HERE), str(REPO_ROOT)],
     binaries=[],
     datas=[
         # Bundle the built React frontend
         (str(FRONTEND_DIST), "frontend_dist"),
+        # Bundle the data pipeline
+        (str(PIPELINE_SRC), "src/pipeline"),
     ],
     hiddenimports=[
         # uvicorn uses dynamic imports — list them explicitly
@@ -50,6 +54,37 @@ a = Analysis(
         "backend.routes.analyze",
         "backend.routes.snapshot",
         "backend.routes.ask",
+        # Data pipeline
+        "src.pipeline.ingest",
+        "src.pipeline.transform",
+        "src.pipeline.load",
+        "src.pipeline.utils",
+        "src.pipeline.ast_imports",
+        "src.pipeline.ast_utils",
+        "src.pipeline.cloud_sync",
+        "src.pipeline.chunking",
+        "src.pipeline.chunking.interfaces",
+        "src.pipeline.chunking.registry",
+        "src.pipeline.chunking.strategies",
+        "src.pipeline.chunking.ts_base_strategy",
+        "src.pipeline.chunking.ts_java_strategy",
+        "src.pipeline.chunking.ts_javascript_strategy",
+        "src.pipeline.chunking.ts_jsx_strategy",
+        "src.pipeline.chunking.ts_py_strategy",
+        "src.pipeline.embedding",
+        "src.pipeline.embedding.interfaces",
+        "src.pipeline.embedding.batcher",
+        "src.pipeline.embedding.providers",
+        "src.pipeline.embedding.providers.huggingface_provider",
+        "src.pipeline.embedding.providers.local_provider",
+        "src.pipeline.embedding.providers.openai_provider",
+        "src.pipeline.indexing",
+        "src.pipeline.indexing.cli",
+        "src.pipeline.indexing.indexer",
+        "src.pipeline.vector_store",
+        "src.pipeline.vector_store.in_memory",
+        "src.pipeline.vector_store.interfaces",
+        "src.pipeline.vector_store.pgvector",
     ],
     hookspath=[],
     hooksconfig={},

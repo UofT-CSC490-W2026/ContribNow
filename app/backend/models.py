@@ -18,12 +18,15 @@ class AnalyzeResponse(BaseModel):
     success: bool
     runId: str
     document: str
-    version: int
+    storageKey: Optional[str] = None
+    fromCache: bool = False
+    version: Optional[int] = None
 
 
 class AskRequest(BaseModel):
     runId: str
     repoSlug: str
+    accessKey: str
     question: str
     conversationHistory: Optional[List[dict]] = None
 

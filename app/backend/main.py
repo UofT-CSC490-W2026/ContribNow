@@ -9,15 +9,21 @@ Static files (frontend/dist) are served from FRONTEND_DIST, which resolves to:
   - <_MEIPASS>/frontend_dist/  when running as a PyInstaller exe
 """
 
+import os
 import sys
 from pathlib import Path
+
+# Ensure the repo root is on sys.path so `src.pipeline` is importable
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.routes import analyze, ask, snapshot
+from backend.routes import analyze, ask, cloud, snapshot
 
 # ── Path resolution ────────────────────────────────────────────────────────────
 
@@ -29,6 +35,21 @@ else:
     _BASE = Path(__file__).parent.parent
 
 FRONTEND_DIST = _BASE / "frontend_dist"
+
+# ── Load .env ─────────────────────────────────────────────────────────────────
+# Look for .env next to the exe (or in app/ during development)
+_ENV_FILE = Path.cwd() / ".env"
+if not _ENV_FILE.exists():
+    _ENV_FILE = Path(__file__).parent.parent / ".env"
+if _ENV_FILE.exists():
+    for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key, value = key.strip(), value.strip()
+        if key and key not in os.environ:
+            os.environ[key] = value
 
 # ── App ────────────────────────────────────────────────────────────────────────
 
@@ -45,6 +66,7 @@ app.add_middleware(
 app.include_router(analyze.router)
 app.include_router(snapshot.router)
 app.include_router(ask.router)
+app.include_router(cloud.router)
 
 
 @app.get("/health")
