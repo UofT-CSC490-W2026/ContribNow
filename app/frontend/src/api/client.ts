@@ -3,6 +3,7 @@ import type {
   AnalyzeResponse,
   AskRequest,
   AskResponse,
+  ChatHistoryResponse,
   CoChangePair,
   Conventions,
   DependencyGraph,
@@ -10,6 +11,7 @@ import type {
   GenerateOnboardingRequest,
   GenerateOnboardingResponse,
   Hotspot,
+  OnboardingDocResponse,
   RiskLevel,
 } from "../types";
 import {
@@ -167,6 +169,57 @@ export async function ask(params: AskRequest): Promise<AskResponse> {
     body: JSON.stringify(params),
   });
 
+  if (!response.ok) throw await parseErrorResponse(response);
+  return response.json();
+}
+
+export async function loadOnboardingDoc(
+  repoSlug: string,
+  accessKey: string,
+  storageKey?: string | null
+): Promise<OnboardingDocResponse> {
+  const url = new URL(`${API_BASE_URL}/onboarding-doc/load`);
+  url.searchParams.set("repo_slug", repoSlug);
+  if (storageKey) {
+    url.searchParams.set("storageKey", storageKey);
+    url.searchParams.set("storage_key", storageKey);
+  }
+
+  const response = await fetch(url.toString(), {
+    headers: { "X-Access-Key": accessKey },
+  });
+  if (!response.ok) throw await parseErrorResponse(response);
+  return response.json();
+}
+
+export async function saveChatMessage(
+  repoSlug: string,
+  role: "user" | "assistant",
+  message: string,
+  accessKey: string,
+  createdAt?: string
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/chat-history/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Access-Key": accessKey },
+    body: JSON.stringify({
+      repo_slug: repoSlug,
+      role,
+      message,
+      created_at: createdAt ?? new Date().toISOString(),
+    }),
+  });
+  if (!response.ok) throw await parseErrorResponse(response);
+}
+
+export async function loadChatHistory(
+  repoSlug: string,
+  accessKey: string
+): Promise<ChatHistoryResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/chat-history/load?repo_slug=${encodeURIComponent(repoSlug)}`,
+    { headers: { "X-Access-Key": accessKey } }
+  );
   if (!response.ok) throw await parseErrorResponse(response);
   return response.json();
 }

@@ -2,10 +2,12 @@ import { useRef, useState, type FormEvent, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useChat } from "../hooks/useChat";
-import type { Citation } from "../types";
+import type { ChatHistoryEntry, Citation } from "../types";
 
 interface ChatPanelProps {
   runId: string;
+  accessKey: string;
+  initialHistory?: ChatHistoryEntry[];
 }
 
 function SnippetModal({
@@ -59,10 +61,10 @@ function CitationChip({ citation }: { citation: Citation }) {
   );
 }
 
-export function ChatPanel({ runId }: ChatPanelProps) {
+export function ChatPanel({ runId, accessKey, initialHistory }: ChatPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [input, setInput] = useState("");
-  const { entries, sendMessage } = useChat(runId);
+  const { entries, sendMessage } = useChat(runId, accessKey, initialHistory);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,7 +83,7 @@ export function ChatPanel({ runId }: ChatPanelProps) {
   return (
     <div
       className={`border-t border-gray-200 bg-white transition-all duration-200 ${
-        expanded ? "h-[40vh]" : "h-[52px]"
+        expanded ? "h-[80vh]" : "h-[52px]"
       }`}
     >
       {expanded && (
@@ -98,7 +100,7 @@ export function ChatPanel({ runId }: ChatPanelProps) {
           </div>
 
           {/* Message thread */}
-          <div className="flex-1 overflow-y-auto px-4 py-3" style={{ height: "calc(40vh - 100px)" }}>
+          <div className="flex-1 overflow-y-auto px-4 py-3" style={{ height: "calc(80vh - 100px)" }}>
             {entries.length === 0 ? (
               <p className="text-sm text-gray-400">Ask anything about this codebase.</p>
             ) : (

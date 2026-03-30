@@ -21,15 +21,15 @@ function buildItems(conventions: Conventions): CheckItem[] {
     });
   }
 
-  for (const ci of conventions.ci_pipelines) {
+  for (const ci of conventions.ci_pipelines ?? []) {
     items.push({ label: `CI: ${ci.platform}`, detail: ci.config_path });
   }
 
-  if (conventions.linters.length > 0) {
+  if ((conventions.linters ?? []).length > 0) {
     items.push({ label: `Linters: ${conventions.linters.map((l) => l.name).join(", ")}` });
   }
 
-  for (const doc of conventions.contribution_docs) {
+  for (const doc of conventions.contribution_docs ?? []) {
     items.push({ label: `Docs: ${doc}` });
   }
 
@@ -37,7 +37,7 @@ function buildItems(conventions: Conventions): CheckItem[] {
     items.push({ label: `Package manager: ${conventions.package_manager}` });
   }
 
-  if (conventions.test_dirs.length > 0) {
+  if ((conventions.test_dirs ?? []).length > 0) {
     items.push({ label: `Test dirs: ${conventions.test_dirs.join(", ")}` });
   }
 

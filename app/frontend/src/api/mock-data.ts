@@ -202,6 +202,8 @@ export async function mockAnalyze(params: AnalyzeRequest): Promise<AnalyzeRespon
       "pallets/markupsafe",
       new URL(params.repoUrl).pathname.slice(1)
     ),
+    storageKey: null,
+    fromCache: false,
     version: 1,
   };
 }
