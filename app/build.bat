@@ -16,10 +16,8 @@ set FRONTEND_DIST_DST=%SCRIPT_DIR%frontend_dist
 echo.
 echo [1/3] Building React frontend...
 pushd "%FRONTEND_DIR%"
-call npm install --silent
-if errorlevel 1 (echo ERROR: npm install failed & exit /b 1)
-call npm run build
-if errorlevel 1 (echo ERROR: npm run build failed & exit /b 1)
+call npx vite build
+if errorlevel 1 (echo ERROR: vite build failed & exit /b 1)
 popd
 
 :: ── Step 2: Copy dist into app/frontend_dist ────────────────────────────────
