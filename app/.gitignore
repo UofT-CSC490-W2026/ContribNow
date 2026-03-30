@@ -1,0 +1,5 @@
+frontend_dist/
+build/
+dist/
+__pycache__/
+*.spec.bak
