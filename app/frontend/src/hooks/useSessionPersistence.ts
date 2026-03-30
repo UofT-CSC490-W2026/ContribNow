@@ -7,9 +7,11 @@ export interface PersistedSession {
   runId: string;
   documentRaw: string;
   repoUrl: string;
+  accessKey: string;
   taskType?: TaskType;
   taskDescription?: string;
-  version: number;
+  storageKey?: string | null;
+  version: number | null;
   savedAt: string; // ISO 8601
 }
 

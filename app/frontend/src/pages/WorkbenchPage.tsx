@@ -95,7 +95,7 @@ function RightPanel() {
 
 
 export function WorkbenchPage() {
-  const { repoUrl, runId, resetSession } = useRunSession();
+  const { repoUrl, runId, accessKey, initialChatHistory, resetSession } = useRunSession();
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-gray-50">
@@ -113,7 +113,7 @@ export function WorkbenchPage() {
         </div>
       </div>
 
-      {runId && <ChatPanel runId={runId} />}
+      {runId && <ChatPanel runId={runId} accessKey={accessKey} initialHistory={initialChatHistory} />}
     </div>
   );
 }

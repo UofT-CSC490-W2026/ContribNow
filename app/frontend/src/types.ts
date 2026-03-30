@@ -42,11 +42,15 @@ export interface AnalyzeResponse {
   success: boolean;
   runId: string;
   document: string;
-  version: number;
+  storageKey: string | null;
+  fromCache: boolean;
+  version: number | null;
 }
 
 export interface AskRequest {
   runId: string;
+  repoSlug: string;
+  accessKey: string;
   question: string;
   conversationHistory?: ChatMessage[];
 }
@@ -127,3 +131,19 @@ export interface Citation {
 }
 
 export type ViewState = "setup" | "analyzing" | "workbench";
+
+// ─── Cloud API ────────────────────────────────────────────────────────────────
+
+export interface ChatHistoryEntry {
+  role: "user" | "assistant";
+  message: string;
+  created_at: string;
+}
+
+export interface ChatHistoryResponse {
+  history: ChatHistoryEntry[];
+}
+
+export interface OnboardingDocResponse {
+  onboarding_docs: string;
+}

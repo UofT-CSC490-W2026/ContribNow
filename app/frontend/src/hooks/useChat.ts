@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ask, ApiError } from "../api/client";
-import type { ChatMessage, Citation } from "../types";
+import type { ChatHistoryEntry, ChatMessage, Citation } from "../types";
 
 interface ChatEntry {
   role: "user" | "assistant";
@@ -9,8 +9,28 @@ interface ChatEntry {
   isLoading?: boolean;
 }
 
-export function useChat(runId: string | null) {
-  const [entries, setEntries] = useState<ChatEntry[]>([]);
+export function useChat(
+  runId: string | null,
+  accessKey: string,
+  initialHistory: ChatHistoryEntry[] = []
+) {
+  const [entries, setEntries] = useState<ChatEntry[]>(() =>
+    initialHistory.map((h) => ({ role: h.role, content: h.message }))
+  );
+  const entriesRef = useRef<ChatEntry[]>(entries);
+
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
+
+  // Sync when initialHistory changes (e.g. after session restore loads cloud history)
+  useEffect(() => {
+    if (initialHistory.length > 0) {
+      const mapped = initialHistory.map((h) => ({ role: h.role, content: h.message }));
+      setEntries(mapped);
+      entriesRef.current = mapped;
+    }
+  }, [initialHistory]);
 
   const sendMessage = useCallback(
     async (question: string) => {
@@ -22,11 +42,18 @@ export function useChat(runId: string | null) {
       setEntries((prev) => [...prev, userEntry, loadingEntry]);
 
       try {
-        const history: ChatMessage[] = entries.map((e) => ({
+        const history: ChatMessage[] = [...entriesRef.current, userEntry].map((e) => ({
           role: e.role,
           content: e.content,
         }));
-        const response = await ask({ runId, question, conversationHistory: history });
+        // Backend saves both messages to cloud after a successful response
+        const response = await ask({
+          runId,
+          repoSlug: runId,
+          accessKey,
+          question,
+          conversationHistory: history,
+        });
 
         setEntries((prev) => [
           ...prev.slice(0, -1),
@@ -41,7 +68,7 @@ export function useChat(runId: string | null) {
         ]);
       }
     },
-    [runId, entries]
+    [runId, accessKey]
   );
 
   const clearHistory = useCallback(() => setEntries([]), []);

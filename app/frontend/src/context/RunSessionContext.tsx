@@ -6,10 +6,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { analyze, ApiError } from "../api/client";
+import { analyze, ApiError, loadChatHistory, loadOnboardingDoc } from "../api/client";
 import type {
   AnalyzeRequest,
   ApiErrorInfo,
+  ChatHistoryEntry,
   DocumentSection,
   TaskType,
   ViewState,
@@ -23,6 +24,7 @@ import {
 interface RunSessionState {
   viewState: ViewState;
   repoUrl: string;
+  accessKey: string;
   taskType: TaskType | undefined;
   taskDescription: string | undefined;
   runId: string | null;
@@ -30,11 +32,13 @@ interface RunSessionState {
   documentSections: DocumentSection[];
   selectedFilePath: string | null;
   analysisError: ApiErrorInfo | null;
+  analysisComplete: boolean;
+  initialChatHistory: ChatHistoryEntry[];
 }
 
 interface RunSessionContextType extends RunSessionState {
   startAnalysis: (req: AnalyzeRequest) => Promise<void>;
-  restoreSession: (session: PersistedSession) => void;
+  restoreSession: (session: PersistedSession) => Promise<void>;
   selectFile: (path: string | null) => void;
   resetSession: () => void;
 }
@@ -42,6 +46,7 @@ interface RunSessionContextType extends RunSessionState {
 const INITIAL_STATE: RunSessionState = {
   viewState: "setup",
   repoUrl: "",
+  accessKey: "",
   taskType: undefined,
   taskDescription: undefined,
   runId: null,
@@ -49,6 +54,8 @@ const INITIAL_STATE: RunSessionState = {
   documentSections: [],
   selectedFilePath: null,
   analysisError: null,
+  analysisComplete: false,
+  initialChatHistory: [],
 };
 
 const RunSessionContext = createContext<RunSessionContextType | null>(null);
@@ -68,9 +75,11 @@ export function RunSessionProvider({ children }: { children: ReactNode }) {
         ...prev,
         viewState: "analyzing",
         repoUrl: req.repoUrl,
+        accessKey: req.accessKey,
         taskType: req.taskType,
         taskDescription: req.taskDescription,
         analysisError: null,
+        initialChatHistory: [],
       }));
 
       try {
@@ -82,18 +91,29 @@ export function RunSessionProvider({ children }: { children: ReactNode }) {
           runId: response.runId,
           documentRaw: response.document,
           repoUrl: req.repoUrl,
+          accessKey: req.accessKey,
           taskType: req.taskType,
           taskDescription: req.taskDescription,
+          storageKey: response.storageKey,
           version: response.version,
           savedAt: new Date().toISOString(),
         });
 
+        // Store result but stay on analyzing page briefly so user sees all steps complete
         setState((prev) => ({
           ...prev,
-          viewState: "workbench",
           runId: response.runId,
           documentRaw: response.document,
           documentSections: sections,
+          analysisComplete: true,
+        }));
+
+        await new Promise((r) => setTimeout(r, 2000));
+        if (controller.signal.aborted) return;
+
+        setState((prev) => ({
+          ...prev,
+          viewState: "workbench",
         }));
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -107,11 +127,12 @@ export function RunSessionProvider({ children }: { children: ReactNode }) {
     [saveSession]
   );
 
-  const restoreSession = useCallback((session: PersistedSession) => {
+  const restoreSession = useCallback(async (session: PersistedSession) => {
     const sections = parseSections(session.documentRaw);
     setState({
       viewState: "workbench",
       repoUrl: session.repoUrl,
+      accessKey: session.accessKey,
       taskType: session.taskType,
       taskDescription: session.taskDescription,
       runId: session.runId,
@@ -119,8 +140,43 @@ export function RunSessionProvider({ children }: { children: ReactNode }) {
       documentSections: sections,
       selectedFilePath: null,
       analysisError: null,
+      initialChatHistory: [],
     });
-  }, []);
+
+    // Refresh onboarding doc from cloud when possible (avoids re-running analysis)
+    try {
+      const doc = await loadOnboardingDoc(
+        session.runId,
+        session.accessKey,
+        session.storageKey ?? null
+      );
+      if (doc.onboarding_docs) {
+        const updatedSections = parseSections(doc.onboarding_docs);
+        setState((prev) => ({
+          ...prev,
+          documentRaw: doc.onboarding_docs,
+          documentSections: updatedSections,
+        }));
+        saveSession({
+          ...session,
+          documentRaw: doc.onboarding_docs,
+          savedAt: new Date().toISOString(),
+        });
+      }
+    } catch {
+      // Non-fatal: fall back to locally persisted document
+    }
+
+    // Load persisted chat history from cloud
+    try {
+      const result = await loadChatHistory(session.runId, session.accessKey);
+      if (result.history.length > 0) {
+        setState((prev) => ({ ...prev, initialChatHistory: result.history }));
+      }
+    } catch {
+      // Non-fatal: chat history simply starts empty
+    }
+  }, [saveSession]);
 
   const selectFile = useCallback((path: string | null) => {
     setState((prev) => ({ ...prev, selectedFilePath: path }));

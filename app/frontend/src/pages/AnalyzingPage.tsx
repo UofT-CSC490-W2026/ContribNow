@@ -13,7 +13,7 @@ const STEPS = [
 type StepStatus = "pending" | "active" | "done";
 
 export function AnalyzingPage() {
-  const { repoUrl, analysisError, resetSession, viewState } = useRunSession();
+  const { repoUrl, analysisError, resetSession, analysisComplete } = useRunSession();
   const [stepStatuses, setStepStatuses] = useState<StepStatus[]>(
     STEPS.map((_, i) => (i === 0 ? "active" : "pending"))
   );
@@ -43,12 +43,12 @@ export function AnalyzingPage() {
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  // When context transitions to workbench (analyze succeeded), snap all steps to done
+  // When analysis completes, snap all steps to done before transitioning
   useEffect(() => {
-    if (viewState === "workbench") {
+    if (analysisComplete) {
       setStepStatuses(STEPS.map(() => "done"));
     }
-  }, [viewState]);
+  }, [analysisComplete]);
 
   const repoLabel = (() => {
     try { return new URL(repoUrl).pathname.slice(1); }
