@@ -1,23 +1,73 @@
 from app.services.db import get_connection
+from app.services.pgvector import PgVectorStore
 
 
-def init_db() -> None:
+# def init_db() -> None:
+#     query = """
+#     CREATE TABLE IF NOT EXISTS onboarding_documents (
+#         id BIGSERIAL PRIMARY KEY,
+#         repo_id TEXT NOT NULL,
+#         repo_url TEXT NOT NULL,
+#         version INTEGER NOT NULL,
+#         storage_key TEXT NOT NULL,
+#         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+#         UNIQUE (repo_id, version)
+#     );
+
+#     CREATE INDEX IF NOT EXISTS idx_onboarding_repo_id
+#     ON onboarding_documents (repo_id);
+#     """
+
+#     with get_connection() as conn:
+#         with conn.cursor() as cur:
+#             cur.execute(query)
+#         conn.commit()
+
+
+def init_db_onboarding_doc() -> None:
     query = """
-    CREATE TABLE IF NOT EXISTS onboarding_documents (
+    CREATE TABLE IF NOT EXISTS onboarding_user_repos (
         id BIGSERIAL PRIMARY KEY,
-        repo_id TEXT NOT NULL,
-        repo_url TEXT NOT NULL,
-        version INTEGER NOT NULL,
-        storage_key TEXT NOT NULL,
+        access_key TEXT NOT NULL,
+        repo_slug TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        UNIQUE (repo_id, version)
+        UNIQUE (access_key, repo_slug)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_onboarding_repo_id
-    ON onboarding_documents (repo_id);
+    CREATE INDEX IF NOT EXISTS idx_onboarding_user_repos_access_key
+    ON onboarding_user_repos (access_key);
     """
-
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(query)
         conn.commit()
+
+
+def init_db_chat_history() -> None:
+    query = """
+    CREATE TABLE IF NOT EXISTS chat_history (
+        id BIGSERIAL PRIMARY KEY,
+        access_key TEXT NOT NULL,
+        role TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chat_history_access_key_created_at
+    ON chat_history (access_key, created_at);
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+        conn.commit()
+
+
+def init_pgvectorstore() -> PgVectorStore:    
+    pgvectorstore = PgVectorStore(
+        schema_name="public",
+        table_name="rag_vectors",
+        embedding_dimensions=32,
+    )
+    pgvectorstore.ensure_schema()
+
+    return pgvectorstore
