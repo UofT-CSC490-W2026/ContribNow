@@ -155,17 +155,31 @@ def test_db_get_connection_uses_config_values(load_backend_module) -> None:
     }
 
 
-def test_db_init_executes_query_and_commits(load_backend_module) -> None:
+def test_init_db_onboarding_doc_executes_query_and_commits(load_backend_module) -> None:
     db_init = load_backend_module("app.services.db_init")
     cursor = FakeCursor()
     connection = FakeConnection(cursor)
     db_init.get_connection = lambda: connection
 
-    db_init.init_db()
+    db_init.init_db_onboarding_doc()
 
     assert len(cursor.executed) == 1
-    assert "CREATE TABLE IF NOT EXISTS onboarding_documents" in cursor.executed[0][0]
-    assert "CREATE INDEX IF NOT EXISTS idx_onboarding_repo_id" in cursor.executed[0][0]
+    assert "CREATE TABLE IF NOT EXISTS onboarding_user_repos" in cursor.executed[0][0]
+    assert "CREATE INDEX IF NOT EXISTS idx_onboarding_user_repos_access_key" in cursor.executed[0][0]
+    assert connection.commits == 1
+
+
+def test_init_db_chat_history_executes_query_and_commits(load_backend_module) -> None:
+    db_init = load_backend_module("app.services.db_init")
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+    db_init.get_connection = lambda: connection
+
+    db_init.init_db_chat_history()
+
+    assert len(cursor.executed) == 1
+    assert "CREATE TABLE IF NOT EXISTS chat_history" in cursor.executed[0][0]
+    assert "CREATE INDEX IF NOT EXISTS idx_chat_history_access_key_created_at" in cursor.executed[0][0]
     assert connection.commits == 1
 
 

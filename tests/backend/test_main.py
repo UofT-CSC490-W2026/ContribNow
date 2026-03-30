@@ -43,7 +43,6 @@ def make_request(**overrides: object) -> SimpleNamespace:
     payload = {
         "repoUrl": "https://github.com/example/project",
         "userPrompt": "Focus on setup",
-        "accessKey": "alpha",
         "forceRegenerate": False,
     }
     payload.update(overrides)
@@ -57,10 +56,18 @@ def test_root_and_handler(load_backend_module) -> None:
     assert main.handler.app is main.app
 
 
-def test_lifespan_calls_init_db(load_backend_module) -> None:
+def test_lifespan_initializes_datastores(load_backend_module) -> None:
     main = load_backend_module("app.main")
     calls: list[str] = []
-    main.init_db = lambda: calls.append("init")
+    store = object()
+    main.init_db_onboarding_doc = lambda: calls.append("onboarding")
+    main.init_db_chat_history = lambda: calls.append("chat")
+
+    def fake_init_pgvectorstore():
+        calls.append("pgvector")
+        return store
+
+    main.init_pgvectorstore = fake_init_pgvectorstore
 
     async def run_lifespan() -> None:
         async with main.lifespan(main.app):
@@ -68,7 +75,8 @@ def test_lifespan_calls_init_db(load_backend_module) -> None:
 
     asyncio.run(run_lifespan())
 
-    assert calls == ["init", "running"]
+    assert calls == ["onboarding", "chat", "pgvector", "running"]
+    assert main.pgvectorstore is store
 
 
 def test_debug_db_runs_query(load_backend_module) -> None:
@@ -88,7 +96,7 @@ def test_generate_onboarding_rejects_invalid_key(load_backend_module) -> None:
     request = make_request(accessKey="bad-key")
 
     with pytest.raises(main.HTTPException) as exc_info:
-        main.generate_onboarding(request)
+        main.generate_onboarding(request, x_access_key="bad-key")
 
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Invalid access key"
@@ -103,7 +111,7 @@ def test_generate_onboarding_returns_cached_document(load_backend_module) -> Non
     }
     main.load_document = lambda storage_key: "# Cached guide"
 
-    response = main.generate_onboarding(make_request())
+    response = main.generate_onboarding(make_request(), x_access_key="alpha")
 
     assert response.success is True
     assert response.document == "# Cached guide"
@@ -126,7 +134,7 @@ def test_generate_onboarding_cached_load_failure_returns_http_500(load_backend_m
     main.load_document = fail_load
 
     with pytest.raises(main.HTTPException) as exc_info:
-        main.generate_onboarding(make_request())
+        main.generate_onboarding(make_request(), x_access_key="alpha")
 
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "Failed to load cached document"
@@ -173,7 +181,7 @@ def test_generate_onboarding_generates_and_saves_document(load_backend_module) -
     main.save_document = save_document
     main.save_cached_document = save_cached_document
 
-    response = main.generate_onboarding(make_request(forceRegenerate=True))
+    response = main.generate_onboarding(make_request(forceRegenerate=True), x_access_key="alpha")
 
     assert response.success is True
     assert response.document == "# Fresh guide"
@@ -203,7 +211,7 @@ def test_generate_onboarding_generation_failure_returns_http_500(load_backend_mo
     main.retrieve_context = fail_generation
 
     with pytest.raises(main.HTTPException) as exc_info:
-        main.generate_onboarding(make_request())
+        main.generate_onboarding(make_request(), x_access_key="alpha")
 
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "Generation failed"
