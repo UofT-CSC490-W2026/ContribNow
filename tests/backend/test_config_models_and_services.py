@@ -86,7 +86,26 @@ def test_models_validate_fields(load_backend_module) -> None:
     request = models.GenerateOnboardingRequest(
         repoUrl="https://github.com/example/project",
         userPrompt="Focus on setup",
-        accessKey="alpha",
+        repoSnapshot={
+            "repo_slug": "example__project",
+            "files": ["README.md", "backend/app/main.py"],
+            "selected_file_contents": [{"path": "README.md", "content": "# Project", "truncated": False}],
+        },
+        onboardingSnapshot={
+            "repo_slug": "example__project",
+            "structure_summary": {"total_files": 2},
+            "hotspots": [{"path": "README.md", "touch_count": 3, "last_touched": "2026-03-30T12:00:00Z"}],
+            "risk_matrix": [{"path": "README.md", "risk_level": "low", "risk_score": 0.2}],
+            "co_change_pairs": [{"file_a": "README.md", "file_b": "backend/app/main.py", "co_change_count": 2}],
+            "authorship_summary": [
+                {
+                    "path": "README.md",
+                    "total_commits": 3,
+                    "primary_contributors": [{"name": "Alice", "commit_count": 3}],
+                }
+            ],
+            "conventions": {"test_framework": {"name": "pytest", "config_path": "pytest.ini"}},
+        },
     )
     response = models.GenerateOnboardingResponse(
         success=True,
@@ -97,12 +116,17 @@ def test_models_validate_fields(load_backend_module) -> None:
     )
 
     assert str(request.repoUrl) == "https://github.com/example/project"
+    assert request.repoSnapshot is not None
+    assert request.repoSnapshot.repo_slug == "example__project"
+    assert request.repoSnapshot.files == ["README.md", "backend/app/main.py"]
+    assert request.repoSnapshot.selected_file_contents[0].path == "README.md"
+    assert request.onboardingSnapshot is not None
+    assert request.onboardingSnapshot.repo_slug == "example__project"
     assert response.storageKey == "outputs/repo/v1.md"
 
     with pytest.raises(ValidationError):
         models.GenerateOnboardingRequest(
             repoUrl="not-a-url",
-            accessKey="alpha",
         )
 
 
@@ -131,7 +155,61 @@ def test_retrieval_includes_repo_url(load_backend_module) -> None:
     result = retrieval.retrieve_context("https://github.com/example/project")
 
     assert "https://github.com/example/project" in result
-    assert "Main purpose" in result
+    assert "Repository snapshot: not provided" in result
+
+
+def test_retrieval_uses_repo_snapshot_file_inventory(load_backend_module) -> None:
+    retrieval = load_backend_module("app.services.retrieval")
+    models = load_backend_module("app.models")
+
+    snapshot = models.RepoSnapshot(
+        repo_slug="example__project",
+        files=[
+            "README.md",
+            "backend/app/main.py",
+            ".github/workflows/tests.yml",
+            "pytest.ini",
+        ],
+        selected_file_contents=[
+            models.RepoFileContent(path="README.md", content="# Project", truncated=False),
+            models.RepoFileContent(path="pytest.ini", content="[pytest]\naddopts = -v", truncated=False),
+        ],
+    )
+    onboarding_snapshot = models.OnboardingSnapshot(
+        repo_slug="example__project",
+        structure_summary={
+            "total_files": 4,
+            "top_level_directories": [{"path": "backend", "file_count": 1}],
+            "file_type_counts": [{"extension": ".py", "count": 1}],
+            "start_here_candidates": [{"path": "README.md", "reasons": ["project_overview"]}],
+        },
+        hotspots=[{"path": "backend/app/main.py", "touch_count": 6, "last_touched": "2026-03-30T12:00:00Z"}],
+        risk_matrix=[{"path": "backend/app/main.py", "risk_level": "medium", "risk_score": 0.6}],
+        co_change_pairs=[{"file_a": "README.md", "file_b": "backend/app/main.py", "co_change_count": 3}],
+        authorship_summary=[
+            {
+                "path": "backend/app/main.py",
+                "total_commits": 6,
+                "primary_contributors": [
+                    {"name": "Alice", "commit_count": 4},
+                    {"name": "Bob", "commit_count": 2},
+                ],
+            }
+        ],
+        conventions={"test_framework": {"name": "pytest", "config_path": "pytest.ini"}},
+    )
+
+    result = retrieval.retrieve_context("https://github.com/example/project", snapshot, onboarding_snapshot)
+
+    assert "All repository file paths:" in result
+    assert "- backend/app/main.py" in result
+    assert "Repository slug: example__project" in result
+    assert "Hotspots:" in result
+    assert "Risk areas:" in result
+    assert "Frequently co-changed files:" in result
+    assert "Ownership examples:" in result
+    assert "Detected conventions:" in result
+    assert "Selected file contents:" in result
 
 
 def test_db_get_connection_uses_config_values(load_backend_module) -> None:
