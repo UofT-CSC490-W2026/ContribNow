@@ -6,6 +6,9 @@ CSC490 project by:
 - Maverick Luke
 - Razan Ahsan Rifandi
 
+## App deployment
+To run our app please refer to this [README.md](https://github.com/UofT-CSC490-W2026/ContribNow/blob/main/app/README.md)
+
 ## Test Coverage
 
 <!-- Pytest Coverage Comment:Begin -->
